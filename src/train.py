@@ -159,6 +159,8 @@ def main():
                         help="Debug mode: 2 epochs, 200 images, no SWA")
     parser.add_argument("--resume", type=str, default=None,
                         help="Path to checkpoint to resume training")
+    parser.add_argument("--gpu", type=int, default=0,
+                        help="GPU index to use (e.g. --gpu 1 for cuda:1)")
     args = parser.parse_args()
 
     # Load config
@@ -186,7 +188,10 @@ def main():
         print("=" * 60)
 
     seed_everything(cfg["seed"])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{args.gpu}")
+    else:
+        device = torch.device("cpu")
     print(f"\n{'='*60}")
     print(f"  ShiftGuard10 Training")
     print(f"  Device: {device}")

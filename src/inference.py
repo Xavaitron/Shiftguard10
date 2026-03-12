@@ -142,9 +142,14 @@ def main():
                         help="Number of TTA views (0 = no TTA)")
     parser.add_argument("--batch-size", type=int, default=512,
                         help="Inference batch size")
+    parser.add_argument("--gpu", type=int, default=0,
+                        help="GPU index to use (e.g. --gpu 1 for cuda:1)")
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device(f"cuda:{args.gpu}")
+    else:
+        device = torch.device("cpu")
     print(f"\n{'='*60}")
     print(f"  ShiftGuard10 Inference")
     print(f"  Device: {device}")
