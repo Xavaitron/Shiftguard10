@@ -342,6 +342,10 @@ def main():
             f"LR: {lr:.6f} | {elapsed:.1f}s{swa_tag}"
         )
 
+        # Per-class F1 report every 25 epochs
+        if (epoch + 1) % 25 == 0 or (epoch + 1) == total_epochs:
+            print(get_classification_report(preds, targets, CLASS_NAMES))
+
         # Save best model
         is_best = val_f1 > best_f1
         if is_best:

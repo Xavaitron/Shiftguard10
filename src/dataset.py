@@ -51,9 +51,11 @@ def get_train_transforms():
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.TrivialAugmentWide(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.RandomGrayscale(p=0.1),
         transforms.ToTensor(),
         transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-        Cutout(n_holes=1, length=8),
+        Cutout(n_holes=1, length=10),
     ])
 
 
