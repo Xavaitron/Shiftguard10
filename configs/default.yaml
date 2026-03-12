@@ -1,0 +1,69 @@
+# ShiftGuard10 Training Configuration
+# Target: A30 GPU (24GB VRAM)
+
+# ─── Data ────────────────────────────────────────────────────────
+data:
+  root: "shift-guard-10-robust-image-classification-challenge"
+  val_ratio: 0.1
+  num_workers: 4
+  pin_memory: true
+
+# ─── Model ───────────────────────────────────────────────────────
+model:
+  name: "cct"  # "cct" or "wrn"
+  num_classes: 10
+
+  # CCT-7/3x1 config
+  cct:
+    img_size: 32
+    n_conv_layers: 2
+    kernel_size: 3
+    embed_dim: 256
+    num_heads: 4
+    num_layers: 7
+    mlp_ratio: 2.0
+    dropout: 0.1
+    attn_dropout: 0.1
+    stochastic_depth: 0.1
+
+  # WideResNet-28-10 config
+  wrn:
+    depth: 28
+    widen_factor: 10
+    dropout: 0.3
+
+# ─── Training ────────────────────────────────────────────────────
+training:
+  epochs: 200
+  batch_size: 256
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5.0e-4
+  label_smoothing: 0.1
+  warmup_epochs: 5
+
+  # MixUp / CutMix
+  mixup_alpha: 1.0
+  cutmix_alpha: 1.0
+  mix_prob: 0.5  # probability of applying MixUp or CutMix per batch
+
+  # SWA (Stochastic Weight Averaging)
+  swa_start: 150
+  swa_lr: 0.01
+
+  # Class balancing
+  use_class_weights: true
+  use_balanced_sampler: true
+
+# ─── Inference ───────────────────────────────────────────────────
+inference:
+  tta_views: 5
+  batch_size: 512
+
+# ─── Output ──────────────────────────────────────────────────────
+output:
+  checkpoint_dir: "checkpoints"
+  submission_file: "submission.csv"
+
+# ─── Seed ────────────────────────────────────────────────────────
+seed: 42

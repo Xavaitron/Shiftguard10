@@ -1,0 +1,46 @@
+============================================================
+  DEBUG MODE - 2 epochs, small batches, no SWA
+============================================================
+
+============================================================
+  ShiftGuard10 Training
+  Device: cpu
+  Model:  cct
+  Epochs: 2
+  Batch:  32
+  LR:     0.1
+============================================================
+
+  Train samples: 200
+  Val samples:   50
+  Model: cct | Params: 4,008,587
+
+  Starting training...
+
+  Epoch   1/2 | Train Loss: 1.2190 Acc: 78.1% | Val Loss: 0.7357 Acc: 100.0% F1: 1.0000 | LR: 0.040000 | 3.6s
+  [SAVED] Checkpoint: checkpoints\best_cct.pth
+  Epoch   2/2 | Train Loss: 0.5850 Acc: 99.5% | Val Loss: 0.5414 Acc: 100.0% F1: 1.0000 | LR: 0.060000 | 3.8s
+
+============================================================
+  Training Complete!
+  Best Macro F1: 1.0000
+============================================================
+
+  Per-class breakdown (final epoch):
+              precision    recall  f1-score   support
+
+    airplane       1.00      1.00      1.00        50
+  automobile       0.00      0.00      0.00         0
+        bird       0.00      0.00      0.00         0
+         cat       0.00      0.00      0.00         0
+        deer       0.00      0.00      0.00         0
+         dog       0.00      0.00      0.00         0
+        frog       0.00      0.00      0.00         0
+       horse       0.00      0.00      0.00         0
+        ship       0.00      0.00      0.00         0
+       truck       0.00      0.00      0.00         0
+
+    accuracy                           1.00        50
+   macro avg       0.10      0.10      0.10        50
+weighted avg       1.00      1.00      1.00        50
+
