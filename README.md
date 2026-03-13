@@ -36,32 +36,50 @@ Shiftguard10/
 
 ## Training
 
-### Quick Debug (CPU, ~2 min)
+We use a robust 3-Phase **Supervised Contrastive Learning (SupCon)** approach to maximize F1 under extreme class imbalance, trained completely from scratch.
 
+### Supported Architectures
+You can use `--model` or `--backbone` with: `cct`, `wrn`, `resnet50`, `convnext`, `effnet`.
+
+### Quick Debug (CPU, ~2 min)
 ```bash
-python src/train.py --model cct --debug
+python src/supcon.py --backbone resnet50 --debug
+python src/train.py --model resnet50 --debug
 ```
 
 ### Full Training (GPU)
 
-The default configuration is heavily optimized for Long-Tailed Learning using **Deferred Re-Weighting (DRW)** and **LDAM Loss** trained from scratch for **300 epochs**.
-
+**Phase 1: SupCon Pretraining**
+Learn highly invariant, clustered class features without the linear classifier bias.
 ```bash
-# Train the primary model (CCT) using the tuned configuration (300 epochs)
-python src/train.py --config configs/default.yaml
+python src/supcon.py --backbone resnet50 --balanced-sampling --epochs 300 --gpu 0
+```
+*(This saves the backbone state to `checkpoints/supcon_resnet50_epoch300.pth`)*
+
+**Phase 2: Linear Probing**
+Freeze the backbone and warm up only the classification head safely.
+```bash
+python src/train.py --config configs/default.yaml --model resnet50 \
+  --pretrained-backbone checkpoints/supcon_resnet50_epoch300.pth \
+  --linear-probe --epochs 20 --gpu 0
 ```
 
-To train the WideResNet baseline:
+**Phase 3: End-to-End Fine-Tuning**
+Unfreeze the entire network and fine-tune with a small learning rate.
 ```bash
-python src/train.py --config configs/default.yaml --model wrn
+python src/train.py --config configs/default.yaml --model resnet50 \
+  --pretrained-backbone checkpoints/supcon_resnet50_epoch300.pth \
+  --epochs 100 --lr 0.01 --gpu 0
 ```
 
-### CLI Overrides
-
+### Multi-GPU Execution
+To train multiple architectures simultaneously on different GPUs:
 ```bash
-# Override epochs or batch size if necessary
-python src/train.py --model cct --epochs 350 --batch-size 128 --lr 0.05
-python src/train.py --model cct --resume checkpoints/best_cct.pth
+# Terminal 1: Train ConvNeXt on GPU 0
+python src/supcon.py --backbone convnext --balanced-sampling --gpu 0
+
+# Terminal 2: Train EfficientNet on GPU 1
+python src/supcon.py --backbone effnet --balanced-sampling --gpu 1
 ```
 
 Checkpoints are saved to `checkpoints/`.
@@ -69,11 +87,11 @@ Checkpoints are saved to `checkpoints/`.
 ## Inference
 
 ```bash
-# Single model
+# Single model inference (runs on GPU 0 by default)
 python src/inference.py --checkpoint checkpoints/best_cct.pth
 
-# With Test-Time Augmentation (5 views)
-python src/inference.py --checkpoint checkpoints/best_cct.pth --tta 5
+# With Test-Time Augmentation (5 views) on specific GPU
+python src/inference.py --checkpoint checkpoints/best_cct.pth --tta 5 --gpu 1
 
 # Ensemble CCT + WRN with TTA
 python src/inference.py --checkpoint checkpoints/best_cct.pth checkpoints/best_wrn.pth --tta 5
@@ -85,11 +103,12 @@ Output: `submission.csv` (7,600 rows with `id,label`).
 
 | File | Description |
 |------|-------------|
-| `src/dataset.py` | Dataset, augmentation (TrivialAugmentWide, CutOut, TTA with Rotation/Jitter) |
+| `src/dataset.py` | Dataset, augmentation (SupCon transforms, TrivialAugment, TTA) |
 | `src/models/cct.py` | Compact Convolutional Transformer (CCT-7/3×1) |
 | `src/models/wideresnet.py` | WideResNet-28-10 for CIFAR-style inputs |
-| `src/loss.py` | implementation of **LDAM Loss** and **Class Balanced Loss** |
-| `src/train.py` | Training loop — MixUp/CutMix, SWA, **DRW (Deferred Re-Weighting)** |
+| `src/models/torchvision_models.py` | ResNet50, ConvNeXt, EffNet natively adapted to 32x32 |
+| `src/supcon.py` | Supervised Contrastive Pretraining phase |
+| `src/train.py` | Fine-tuning loop — supports `--linear-probe` |
 | `src/inference.py` | Inference with TTA and multi-model ensemble |
 | `src/utils.py` | Metrics, MixUp/CutMix, checkpointing |
 | `configs/default.yaml` | All hyperparameters |
@@ -97,8 +116,7 @@ Output: `submission.csv` (7,600 rows with `id,label`).
 ## Key Techniques
 
 To strictly abide by the competition rules (no pretrained models, no external data), our pipeline utilizes:
-- **Deferred Re-Weighting (DRW)** — trains on the raw skewed distribution to learn high-quality features, then switches to tuning the decision boundary for classes with fewer samples in the late stage.
-- **LDAM Loss** — mathematically forces a wider margin for minority classes (truck, ship), drastically improving recall without overfitting.
-- **MixUp / CutMix Disable Switch** — turns off interpolation during the DRW phase to ensure strict decision boundary tuning.
-- **Enhanced TTA + Ensemble** — combines multi-checkpoint probabilities with Random Rotation, Flip, and Color Jitter to robustly predict shifts.
-- **SWA** — ensures flatter loss minima for overall generalization.
+- **Supervised Contrastive Learning (SupCon)** — pulls all images of the same class together in representation space to robustly cluster minority classes *before* the linear classifier is initialized.
+- **Frozen Linear Probing** — protects the pretrained features from destruction by the randomly initialized dense head, acting as a phase-break.
+- **Architectural Diversity Ensembling** — leverages Transformers, Wide ResNets, standard ResNets, and ConvNeXts (custom adapted for 32x32 image structures) to ensure powerful generalization against the hidden distribution shift.
+- **Enhanced TTA + SWA** — combines multi-checkpoint outputs with Random Rotation, Flip, Color Jitter, and Weight Averaging for ultimate test-time stability.

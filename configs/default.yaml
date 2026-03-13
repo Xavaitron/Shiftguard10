@@ -51,11 +51,16 @@ training:
   swa_start: 225
   swa_lr: 0.005
 
-  # Class balancing via DRW (Deferred Re-Weighting) and LDAM Loss
+  # Class balancing
   use_class_weights: false
-  use_balanced_sampler: false
-  use_ldam_loss: true
-  drw_start: 240  # Start DRW at epoch 240 (last 20%)
+  use_balanced_sampler: true
+
+# ─── SimCLR Pretraining ──────────────────────────────────────────
+simclr:
+  epochs: 200
+  batch_size: 256
+  temperature: 0.5
+  projection_dim: 128
 
 # ─── Inference ───────────────────────────────────────────────────
 inference:

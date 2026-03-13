@@ -26,6 +26,7 @@ from src.dataset import (
 )
 from src.models.cct import cct_7_3x1
 from src.models.wideresnet import wrn_28_10
+from src.models.torchvision_models import resnet50_cifar, convnext_tiny_cifar, effnet_v2_s_cifar
 
 
 def load_model(checkpoint_path, device):
@@ -50,11 +51,17 @@ def load_model(checkpoint_path, device):
             stochastic_depth=cct_cfg["stochastic_depth"],
         )
     elif model_name == "wrn":
-        wrn_cfg = cfg["model"]["wrn"]
+        wrn_cfg = cfg["model"].get("wrn", {})
         model = wrn_28_10(
             num_classes=num_classes,
-            dropout=wrn_cfg["dropout"],
+            dropout=wrn_cfg.get("dropout", 0.3),
         )
+    elif model_name == "resnet50":
+        model = resnet50_cifar(num_classes=num_classes)
+    elif model_name == "convnext":
+        model = convnext_tiny_cifar(num_classes=num_classes)
+    elif model_name == "effnet":
+        model = effnet_v2_s_cifar(num_classes=num_classes)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 

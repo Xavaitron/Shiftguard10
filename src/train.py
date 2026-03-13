@@ -34,7 +34,7 @@ from src.dataset import (
 )
 from src.models.cct import cct_7_3x1
 from src.models.wideresnet import wrn_28_10
-from src.loss import LDAMLoss
+from src.models.torchvision_models import resnet50_cifar, convnext_tiny_cifar, effnet_v2_s_cifar
 from src.utils import (
     seed_everything, compute_macro_f1, get_classification_report,
     mixup_data, cutmix_data, mixup_cutmix_criterion,
@@ -68,11 +68,17 @@ def build_model(cfg, device):
             stochastic_depth=cct_cfg["stochastic_depth"],
         )
     elif model_name == "wrn":
-        wrn_cfg = cfg["model"]["wrn"]
+        wrn_cfg = cfg["model"].get("wrn", {})
         model = wrn_28_10(
             num_classes=num_classes,
-            dropout=wrn_cfg["dropout"],
+            dropout=wrn_cfg.get("dropout", 0.3),
         )
+    elif model_name == "resnet50":
+        model = resnet50_cifar(num_classes=num_classes)
+    elif model_name == "convnext":
+        model = convnext_tiny_cifar(num_classes=num_classes)
+    elif model_name == "effnet":
+        model = effnet_v2_s_cifar(num_classes=num_classes)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -96,22 +102,29 @@ def train_one_epoch(model, loader, criterion, optimizer, device, cfg, epoch):
     for batch_idx, (images, targets) in enumerate(loader):
         images, targets = images.to(device), targets.to(device)
 
-        # Apply MixUp or CutMix with probability (disabled during DRW)
-        is_drw = epoch >= cfg["training"].get("drw_start", 9999)
-        current_mix_prob = 0.0 if is_drw else mix_prob
-        
-        use_mix = np.random.rand() < current_mix_prob and epoch >= cfg["training"]["warmup_epochs"]
-        if use_mix:
-            if np.random.rand() < 0.5:
-                images, targets_a, targets_b, lam = mixup_data(images, targets, mixup_alpha)
+        # MixUp / CutMix (with scheduling)
+        alpha_m = cfg["training"]["mixup_alpha"]
+        alpha_c = cfg["training"]["cutmix_alpha"]
+        prob = cfg["training"]["mix_prob"]
+
+        use_mix = False
+        if prob > 0 and np.random.rand() < prob:
+            # Randomly choose between mixup and cutmix
+            if np.random.rand() < 0.5 and alpha_m > 0:
+                images, targets_a, targets_b, lam = mixup_data(images, targets, alpha_m)
+                outputs = model(images)
+                loss = mixup_cutmix_criterion(criterion, outputs, targets_a, targets_b, lam)
+                use_mix = True
+            elif alpha_c > 0:
+                images, targets_a, targets_b, lam = cutmix_data(images, targets, alpha_c)
+                outputs = model(images)
+                loss = mixup_cutmix_criterion(criterion, outputs, targets_a, targets_b, lam)
+                use_mix = True
             else:
-                images, targets_a, targets_b, lam = cutmix_data(images, targets, cutmix_alpha)
-
-        outputs = model(images)
-
-        if use_mix:
-            loss = mixup_cutmix_criterion(criterion, outputs, targets_a, targets_b, lam)
+                outputs = model(images)
+                loss = criterion(outputs, targets)
         else:
+            outputs = model(images)
             loss = criterion(outputs, targets)
 
         optimizer.zero_grad()
@@ -123,7 +136,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, cfg, epoch):
         loss_meter.update(loss.item(), images.size(0))
 
         if not use_mix:
-            # Recompute accuracy using the output (LDAM modified logits affect CrossEntropy margin but argmax is safe)
+            # Recompute accuracy using the output
             _, predicted = outputs.max(1)
             correct += predicted.eq(targets).sum().item()
             total += targets.size(0)
@@ -158,10 +171,14 @@ def validate(model, loader, criterion, device):
 def main():
     parser = argparse.ArgumentParser(description="ShiftGuard10 Training")
     parser.add_argument("--config", type=str, default="configs/default.yaml")
-    parser.add_argument("--model", type=str, choices=["cct", "wrn"], default=None,
+    parser.add_argument("--model", type=str, choices=["cct", "wrn", "resnet50", "convnext", "effnet"], default=None,
                         help="Override model from config")
     parser.add_argument("--epochs", type=int, default=None,
                         help="Override epochs from config")
+    parser.add_argument("--pretrained-backbone", type=str, default=None,
+                        help="Path to pretrained self-supervised backbone (e.g. from simclr.py)")
+    parser.add_argument("--linear-probe", action="store_true",
+                        help="Freeze backbone and only train the linear classifier head")
     parser.add_argument("--batch-size", type=int, default=None,
                         help="Override batch size from config")
     parser.add_argument("--lr", type=float, default=None,
@@ -263,32 +280,42 @@ def main():
     # ─── Model & Optimizer & Criterion ───────────────────────
     model = build_model(cfg, device)
 
-    # Calculate class counts for LDAM loss
-    full_train = ShiftGuard10Dataset(
-        root=data_root, split="train",
-        val_ratio=cfg["data"]["val_ratio"],
-        seed=cfg["seed"]
-    )
-    cls_num_list = get_class_counts(full_train)
+    if args.pretrained_backbone:
+        ckpt = torch.load(args.pretrained_backbone, map_location=device)
+        # Load weights (assuming it was saved as the backbone only)
+        # Note: keys might be slightly different depending on if it was wrapped in a module
+        try:
+            model.load_state_dict(ckpt, strict=False)
+            print(f"  Loaded pretrained backbone from {args.pretrained_backbone}")
+        except Exception as e:
+            print(f"  Warning: Error loading pretrained backbone: {e}")
+
+    if args.linear_probe:
+        print("  LINEAR PROBE: Freezing backbone layers")
+        # Freeze all parameters
+        for param in model.parameters():
+            param.requires_grad = False
+        # Unfreeze just the final classifier head
+        if hasattr(model, 'head'): # CCT
+            for param in model.head.parameters():
+                param.requires_grad = True
+        elif hasattr(model, 'fc'): # WRN
+            for param in model.fc.parameters():
+                param.requires_grad = True
+
+    # Simple Cross Entropy for linear probing and fine tuning
+    criterion = nn.CrossEntropyLoss(label_smoothing=cfg["training"]["label_smoothing"]).to(device)
     
     
     total_epochs = cfg["training"]["epochs"]
     warmup_epochs = cfg["training"]["warmup_epochs"]
     
-    # Class-weighted loss (Deferred Re-Weighting handling)
-    use_drw = cfg["training"].get("drw_start", 9999) < total_epochs
-    if cfg["training"].get("use_ldam_loss", False):
-        print(f"  Loss: LDAM Loss (DRW starts at epoch {cfg['training'].get('drw_start', 9999)})")
-        criterion = LDAMLoss(cls_num_list=cls_num_list, s=30).to(device)
-        # Use standard CrossEntropy before DRW starts
-        base_criterion = nn.CrossEntropyLoss(label_smoothing=cfg["training"]["label_smoothing"])
-    else:
-        print("  Loss: Standard Cross Entropy")
-        criterion = nn.CrossEntropyLoss(label_smoothing=cfg["training"]["label_smoothing"])
-        base_criterion = criterion
 
+
+    # Only pass parameters that require gradients to the optimizer
+    parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(
-        model.parameters(),
+        parameters,
         lr=cfg["training"]["lr"],
         momentum=cfg["training"]["momentum"],
         weight_decay=cfg["training"]["weight_decay"],
@@ -329,15 +356,9 @@ def main():
     for epoch in range(start_epoch, total_epochs):
         t0 = time.time()
 
-        # Select criterion based on DRW
-        is_drw = epoch >= cfg["training"].get("drw_start", 9999)
-        current_criterion = criterion if is_drw else base_criterion
-        if is_drw and epoch == cfg["training"].get("drw_start", 9999):
-            print(f"  >>> DRW Activated: Switching to class-weighted/LDAM Loss and disabling MixUp <<<")
-
         # Train
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, current_criterion, optimizer, device, cfg, epoch
+            model, train_loader, criterion, optimizer, device, cfg, epoch
         )
 
         # LR schedule
