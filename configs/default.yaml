@@ -51,9 +51,11 @@ training:
   swa_start: 225
   swa_lr: 0.005
 
-  # Class balancing — use ONLY sampler, NOT both (double-correction kills F1)
+  # Class balancing via DRW (Deferred Re-Weighting) and LDAM Loss
   use_class_weights: false
-  use_balanced_sampler: true
+  use_balanced_sampler: false
+  use_ldam_loss: true
+  drw_start: 240  # Start DRW at epoch 240 (last 20%)
 
 # ─── Inference ───────────────────────────────────────────────────
 inference:

@@ -34,11 +34,18 @@ from src.dataset import (
 )
 from src.models.cct import cct_7_3x1
 from src.models.wideresnet import wrn_28_10
+from src.loss import LDAMLoss
 from src.utils import (
     seed_everything, compute_macro_f1, get_classification_report,
     mixup_data, cutmix_data, mixup_cutmix_criterion,
     save_checkpoint, load_checkpoint, AverageMeter
 )
+
+
+def get_class_counts(dataset):
+    """Retrieve number of samples per class in the dataset."""
+    counts = np.bincount(dataset.labels, minlength=len(CLASS_NAMES))
+    return counts
 
 
 def build_model(cfg, device):
@@ -89,8 +96,11 @@ def train_one_epoch(model, loader, criterion, optimizer, device, cfg, epoch):
     for batch_idx, (images, targets) in enumerate(loader):
         images, targets = images.to(device), targets.to(device)
 
-        # Apply MixUp or CutMix with probability
-        use_mix = np.random.rand() < mix_prob and epoch >= cfg["training"]["warmup_epochs"]
+        # Apply MixUp or CutMix with probability (disabled during DRW)
+        is_drw = epoch >= cfg["training"].get("drw_start", 9999)
+        current_mix_prob = 0.0 if is_drw else mix_prob
+        
+        use_mix = np.random.rand() < current_mix_prob and epoch >= cfg["training"]["warmup_epochs"]
         if use_mix:
             if np.random.rand() < 0.5:
                 images, targets_a, targets_b, lam = mixup_data(images, targets, mixup_alpha)
@@ -113,6 +123,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, cfg, epoch):
         loss_meter.update(loss.item(), images.size(0))
 
         if not use_mix:
+            # Recompute accuracy using the output (LDAM modified logits affect CrossEntropy margin but argmax is safe)
             _, predicted = outputs.max(1)
             correct += predicted.eq(targets).sum().item()
             total += targets.size(0)
@@ -249,26 +260,32 @@ def main():
     print(f"  Train samples: {len(train_dataset)}")
     print(f"  Val samples:   {len(val_dataset)}")
 
-    # ─── Model & Optimizer ───────────────────────────────────
+    # ─── Model & Optimizer & Criterion ───────────────────────
     model = build_model(cfg, device)
 
-    # Class-weighted loss
-    if cfg["training"]["use_class_weights"] and not args.debug:
-        # Recompute from full training set (not subset)
-        full_train = ShiftGuard10Dataset(
-            root=data_root, split="train",
-            val_ratio=cfg["data"]["val_ratio"],
-            seed=cfg["seed"]
-        )
-        class_weights = full_train.get_class_weights().to(device)
-        print(f"  Class weights: {class_weights.cpu().numpy().round(2)}")
-    else:
-        class_weights = None
-
-    criterion = nn.CrossEntropyLoss(
-        weight=class_weights,
-        label_smoothing=cfg["training"]["label_smoothing"],
+    # Calculate class counts for LDAM loss
+    full_train = ShiftGuard10Dataset(
+        root=data_root, split="train",
+        val_ratio=cfg["data"]["val_ratio"],
+        seed=cfg["seed"]
     )
+    cls_num_list = get_class_counts(full_train)
+    
+    
+    total_epochs = cfg["training"]["epochs"]
+    warmup_epochs = cfg["training"]["warmup_epochs"]
+    
+    # Class-weighted loss (Deferred Re-Weighting handling)
+    use_drw = cfg["training"].get("drw_start", 9999) < total_epochs
+    if cfg["training"].get("use_ldam_loss", False):
+        print(f"  Loss: LDAM Loss (DRW starts at epoch {cfg['training'].get('drw_start', 9999)})")
+        criterion = LDAMLoss(cls_num_list=cls_num_list, s=30).to(device)
+        # Use standard CrossEntropy before DRW starts
+        base_criterion = nn.CrossEntropyLoss(label_smoothing=cfg["training"]["label_smoothing"])
+    else:
+        print("  Loss: Standard Cross Entropy")
+        criterion = nn.CrossEntropyLoss(label_smoothing=cfg["training"]["label_smoothing"])
+        base_criterion = criterion
 
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -279,8 +296,6 @@ def main():
     )
 
     # Cosine annealing with warmup
-    total_epochs = cfg["training"]["epochs"]
-    warmup_epochs = cfg["training"]["warmup_epochs"]
 
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
@@ -314,9 +329,15 @@ def main():
     for epoch in range(start_epoch, total_epochs):
         t0 = time.time()
 
+        # Select criterion based on DRW
+        is_drw = epoch >= cfg["training"].get("drw_start", 9999)
+        current_criterion = criterion if is_drw else base_criterion
+        if is_drw and epoch == cfg["training"].get("drw_start", 9999):
+            print(f"  >>> DRW Activated: Switching to class-weighted/LDAM Loss and disabling MixUp <<<")
+
         # Train
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, cfg, epoch
+            model, train_loader, current_criterion, optimizer, device, cfg, epoch
         )
 
         # LR schedule
