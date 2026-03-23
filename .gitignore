@@ -1,3 +1,7 @@
-shift-guard-10-robust-image-classification-challenge
-checkpoints
-src/__pycache__/*
+shift-guard-10-robust-image-classification-challenge/
+shift-guard-10-robust-image-classification-challenge.zip
+checkpoints/
+src/__pycache__/
+__pycache__/
+*.pyc
+submission.csv
