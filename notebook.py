@@ -1,20 +1,20 @@
 """
-ShiftGuard10 — All-in-One Kaggle Notebook
-==========================================
-Trains from scratch and generates submission.csv.
+ShiftGuard10 — All-in-One Training + Inference
+================================================
+Trains from scratch on the competition data, generates submission.csv.
 
-Key ingredients:
-  1. PyramidNet-272 + ShakeDrop (SOTA from-scratch CIFAR arch)
-  2. WRN-28-10 as secondary ensemble member
-  3. Balanced Softmax loss (unbiased for long-tailed distributions)
-  4. RandAugment + Cutout(16) + MixUp/CutMix
-  5. Cosine LR with warmup + SWA
-  6. Multi-seed ensemble (3 seeds)
-  7. 20-view TTA at inference
+Key techniques:
+  - WRN-28-10 (proven CIFAR SOTA, ~36M params)
+  - Balanced Softmax loss (handles 50:1 class imbalance)
+  - torchvision AutoAugment + Cutout + MixUp/CutMix
+  - Cosine LR with warmup + SWA
+  - Heavy TTA at inference (20 views)
 
 Usage:
-  python notebook.py                 # Full training on GPU
-  python notebook.py --debug         # Quick smoke test (2 epochs, tiny subset)
+  python notebook.py                          # Full training (300 epochs)
+  python notebook.py --epochs 200 --tta 30    # Custom epochs + more TTA
+  python notebook.py --debug                  # Smoke test (2 epochs)
+  python notebook.py --data-root /path/to/data
 """
 
 import os
@@ -28,25 +28,22 @@ import argparse
 from collections import Counter
 
 import numpy as np
-from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+from PIL import Image
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler, Subset
 from torch.optim.swa_utils import AveragedModel, SWALR
+from torchvision import transforms
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║  CONFIGURATION                                                           ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-# --- Paths (resolved in main()) ---
 DATA_ROOT = "shift-guard-10-robust-image-classification-challenge"
-
 OUTPUT_DIR = "."
-CHECKPOINT_DIR = "checkpoints"
 
-# --- Classes ---
 CLASS_NAMES = [
     "airplane", "automobile", "bird", "cat", "deer",
     "dog", "frog", "horse", "ship", "truck"
@@ -55,32 +52,9 @@ CLASS_TO_IDX = {name: idx for idx, name in enumerate(CLASS_NAMES)}
 IDX_TO_CLASS = {idx: name for name, idx in CLASS_TO_IDX.items()}
 NUM_CLASSES = 10
 
-# --- Normalization ---
 CIFAR_MEAN = (0.4914, 0.4822, 0.4465)
 CIFAR_STD  = (0.2470, 0.2435, 0.2616)
 
-# --- Training Hyperparameters ---
-SEEDS          = [42, 137, 2024]
-EPOCHS         = 300
-BATCH_SIZE     = 128
-LR             = 0.1
-MOMENTUM       = 0.9
-WEIGHT_DECAY   = 5e-4
-WARMUP_EPOCHS  = 5
-LABEL_SMOOTH   = 0.1
-GRAD_CLIP      = 5.0
-
-# MixUp / CutMix
-MIXUP_ALPHA    = 1.0
-CUTMIX_ALPHA   = 1.0
-MIX_PROB       = 0.5
-
-# SWA
-SWA_START      = 250
-SWA_LR         = 0.005
-
-# TTA
-TTA_VIEWS      = 20
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
 # ║  UTILITIES                                                               ║
@@ -97,8 +71,6 @@ def seed_everything(seed):
 
 class AverageMeter:
     def __init__(self):
-        self.reset()
-    def reset(self):
         self.val = self.avg = self.sum = self.count = 0
     def update(self, val, n=1):
         self.val = val; self.sum += val * n; self.count += n
@@ -110,187 +82,59 @@ def compute_macro_f1(preds, targets):
     return f1_score(targets, preds, average="macro", zero_division=0)
 
 
+def get_classification_report(preds, targets):
+    from sklearn.metrics import classification_report
+    return classification_report(targets, preds, target_names=CLASS_NAMES, zero_division=0)
+
+
 # ╔════════════════════════════════════════════════════════════════════════════╗
-# ║  RANDAUGMENT (Pure PIL Implementation)                                   ║
+# ║  AUGMENTATION                                                            ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
-
-def _apply_op(img, op_name, magnitude):
-    """Apply a single augmentation operation to a PIL image."""
-    if op_name == "ShearX":
-        img = img.transform(img.size, Image.AFFINE, (1, magnitude, 0, 0, 1, 0))
-    elif op_name == "ShearY":
-        img = img.transform(img.size, Image.AFFINE, (1, 0, 0, magnitude, 1, 0))
-    elif op_name == "TranslateX":
-        pixels = int(magnitude * img.size[0])
-        img = img.transform(img.size, Image.AFFINE, (1, 0, pixels, 0, 1, 0))
-    elif op_name == "TranslateY":
-        pixels = int(magnitude * img.size[1])
-        img = img.transform(img.size, Image.AFFINE, (1, 0, 0, 0, 1, pixels))
-    elif op_name == "Rotate":
-        img = img.rotate(magnitude)
-    elif op_name == "Brightness":
-        img = ImageEnhance.Brightness(img).enhance(1.0 + magnitude)
-    elif op_name == "Color":
-        img = ImageEnhance.Color(img).enhance(1.0 + magnitude)
-    elif op_name == "Contrast":
-        img = ImageEnhance.Contrast(img).enhance(1.0 + magnitude)
-    elif op_name == "Sharpness":
-        img = ImageEnhance.Sharpness(img).enhance(1.0 + magnitude)
-    elif op_name == "Posterize":
-        bits = max(1, int(magnitude))
-        img = ImageOps.posterize(img, bits)
-    elif op_name == "Solarize":
-        threshold = int(magnitude)
-        img = ImageOps.solarize(img, threshold)
-    elif op_name == "AutoContrast":
-        img = ImageOps.autocontrast(img)
-    elif op_name == "Equalize":
-        img = ImageOps.equalize(img)
-    elif op_name == "Invert":
-        img = ImageOps.invert(img)
-    return img
-
-
-# Operation names and magnitude ranges (max magnitude)
-_AUGMENT_LIST = [
-    ("ShearX",        0.3),
-    ("ShearY",        0.3),
-    ("TranslateX",    0.3),
-    ("TranslateY",    0.3),
-    ("Rotate",        30),
-    ("Brightness",    0.9),
-    ("Color",         0.9),
-    ("Contrast",      0.9),
-    ("Sharpness",     0.9),
-    ("Posterize",     4),
-    ("Solarize",      256),
-    ("AutoContrast",  0),
-    ("Equalize",      0),
-]
-
-
-class RandAugment:
-    """RandAugment: Practical automated data augmentation with a reduced search space."""
-    def __init__(self, n_ops=2, magnitude=14, max_magnitude=30):
-        self.n_ops = n_ops
-        self.magnitude = magnitude
-        self.max_magnitude = max_magnitude
-
-    def __call__(self, img):
-        ops = random.choices(_AUGMENT_LIST, k=self.n_ops)
-        for op_name, max_val in ops:
-            # Scale magnitude
-            if max_val > 0:
-                mag = (self.magnitude / self.max_magnitude) * max_val
-                # Random sign for geometric transforms
-                if op_name in ("ShearX", "ShearY", "TranslateX", "TranslateY", "Rotate",
-                               "Brightness", "Color", "Contrast", "Sharpness"):
-                    if random.random() < 0.5:
-                        mag = -mag
-            else:
-                mag = 0
-            img = _apply_op(img, op_name, mag)
-        return img
-
 
 class Cutout:
     """Randomly mask out a square patch from a tensor image."""
     def __init__(self, length=16):
         self.length = length
-
     def __call__(self, img):
         h, w = img.size(1), img.size(2)
-        mask = torch.ones(h, w, dtype=img.dtype, device=img.device)
+        mask = torch.ones(h, w, dtype=img.dtype)
         y = random.randint(0, h - 1)
         x = random.randint(0, w - 1)
-        y1 = max(0, y - self.length // 2)
-        y2 = min(h, y + self.length // 2)
-        x1 = max(0, x - self.length // 2)
-        x2 = min(w, x + self.length // 2)
+        y1, y2 = max(0, y - self.length // 2), min(h, y + self.length // 2)
+        x1, x2 = max(0, x - self.length // 2), min(w, x + self.length // 2)
         mask[y1:y2, x1:x2] = 0.0
         return img * mask.unsqueeze(0)
 
 
-class NumpyToTensor:
-    """Convert PIL image to tensor and normalize."""
-    def __call__(self, img):
-        arr = np.array(img, dtype=np.float32) / 255.0
-        # HWC -> CHW
-        tensor = torch.from_numpy(arr.transpose(2, 0, 1))
-        # Normalize
-        mean = torch.tensor(CIFAR_MEAN, dtype=torch.float32).view(3, 1, 1)
-        std = torch.tensor(CIFAR_STD, dtype=torch.float32).view(3, 1, 1)
-        return (tensor - mean) / std
+def get_train_transforms():
+    """Strong augmentation: AutoAugment(CIFAR10) + Cutout."""
+    return transforms.Compose([
+        transforms.RandomCrop(32, padding=4, fill=128),
+        transforms.RandomHorizontalFlip(),
+        transforms.AutoAugment(transforms.AutoAugmentPolicy.CIFAR10),
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+        Cutout(length=16),
+    ])
 
 
-class TrainTransform:
-    """Full training augmentation pipeline: RandomCrop + Flip + RandAugment + Normalize + Cutout."""
-    def __init__(self):
-        self.rand_augment = RandAugment(n_ops=2, magnitude=14)
-        self.to_tensor = NumpyToTensor()
-        self.cutout = Cutout(length=16)
-
-    def __call__(self, img):
-        # RandomCrop with padding
-        img = ImageOps.expand(img, border=4, fill=(128, 128, 128))
-        w, h = img.size
-        x = random.randint(0, w - 32)
-        y = random.randint(0, h - 32)
-        img = img.crop((x, y, x + 32, y + 32))
-
-        # Random horizontal flip
-        if random.random() < 0.5:
-            img = ImageOps.mirror(img)
-
-        # RandAugment
-        img = self.rand_augment(img)
-
-        # To tensor + normalize
-        tensor = self.to_tensor(img)
-
-        # Cutout
-        tensor = self.cutout(tensor)
-        return tensor
+def get_val_transforms():
+    return transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+    ])
 
 
-class ValTransform:
-    """Clean validation/test transform."""
-    def __init__(self):
-        self.to_tensor = NumpyToTensor()
-
-    def __call__(self, img):
-        return self.to_tensor(img)
-
-
-class TTATransform:
-    """Stochastic TTA view."""
-    def __init__(self):
-        self.to_tensor = NumpyToTensor()
-
-    def __call__(self, img):
-        # Random crop with padding
-        img = ImageOps.expand(img, border=4, fill=(128, 128, 128))
-        w, h = img.size
-        x = random.randint(0, w - 32)
-        y = random.randint(0, h - 32)
-        img = img.crop((x, y, x + 32, y + 32))
-
-        # Random horizontal flip
-        if random.random() < 0.5:
-            img = ImageOps.mirror(img)
-
-        # Light color jitter
-        if random.random() < 0.5:
-            img = ImageEnhance.Brightness(img).enhance(random.uniform(0.9, 1.1))
-        if random.random() < 0.5:
-            img = ImageEnhance.Contrast(img).enhance(random.uniform(0.9, 1.1))
-
-        # Small rotation
-        if random.random() < 0.3:
-            angle = random.uniform(-10, 10)
-            img = img.rotate(angle, fillcolor=(128, 128, 128))
-
-        return self.to_tensor(img)
+def get_tta_transform():
+    """Stochastic TTA view transform."""
+    return transforms.Compose([
+        transforms.RandomCrop(32, padding=4, fill=128),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+        transforms.RandomRotation(10, fill=128),
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+    ])
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -305,20 +149,13 @@ class ShiftGuard10Dataset(Dataset):
 
         if split in ("train", "val"):
             labels_path = os.path.join(root, "train_labels.csv")
-            self.image_ids = []
-            self.labels = []
-
+            all_ids, all_labels = [], []
             with open(labels_path) as f:
                 reader = csv.DictReader(f)
-                all_ids = []
-                all_labels = []
                 for row in reader:
-                    img_id = row["id"].strip().zfill(6)
-                    label = row["label"].strip()
-                    all_ids.append(img_id)
-                    all_labels.append(label)
+                    all_ids.append(row["id"].strip().zfill(6))
+                    all_labels.append(row["label"].strip())
 
-            # Stratified split
             rng = np.random.RandomState(seed)
             class_indices = {cls: [] for cls in CLASS_NAMES}
             for i, lbl in enumerate(all_labels):
@@ -326,7 +163,7 @@ class ShiftGuard10Dataset(Dataset):
 
             train_idx, val_idx = [], []
             for cls in CLASS_NAMES:
-                idxs = class_indices[cls]
+                idxs = class_indices[cls][:]
                 rng.shuffle(idxs)
                 n_val = max(1, int(len(idxs) * val_ratio))
                 val_idx.extend(idxs[:n_val])
@@ -361,8 +198,7 @@ class ShiftGuard10Dataset(Dataset):
         return image, img_id
 
     def get_class_counts(self):
-        counts = np.bincount(self.labels, minlength=NUM_CLASSES)
-        return counts
+        return np.bincount(self.labels, minlength=NUM_CLASSES)
 
     def get_sampler(self):
         counts = np.bincount(self.labels, minlength=NUM_CLASSES)
@@ -372,176 +208,8 @@ class ShiftGuard10Dataset(Dataset):
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
-# ║  MODELS                                                                  ║
+# ║  MODEL: WideResNet-28-10                                                 ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
-
-# ─── ShakeDrop ───────────────────────────────────────────────────────────────
-
-class ShakeDropFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, training=True, p_drop=0.5, alpha_range=(-1, 1)):
-        if training:
-            gate = torch.bernoulli(torch.tensor(1.0 - p_drop)).item()
-            ctx.save_for_backward(torch.tensor(gate))
-            ctx.alpha_range = alpha_range
-            if gate == 0:
-                alpha = torch.empty(1).uniform_(*alpha_range).item()
-                return alpha * x
-            return x
-        else:
-            return (1.0 - p_drop) * x
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        gate, = ctx.saved_tensors
-        if gate.item() == 0:
-            beta = torch.empty(1).uniform_(*ctx.alpha_range).item()
-            return beta * grad_output, None, None, None
-        return grad_output, None, None, None
-
-
-def shakedrop(x, training=True, p_drop=0.5):
-    return ShakeDropFunction.apply(x, training, p_drop, (-1, 1))
-
-
-# ─── PyramidNet Basic Block ────────────────────────────────────────────────
-
-class PyramidBasicBlock(nn.Module):
-    outchannel_ratio = 1
-
-    def __init__(self, in_ch, out_ch, stride, p_drop):
-        super().__init__()
-        self.bn1 = nn.BatchNorm2d(in_ch)
-        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_ch)
-        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, stride=1, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_ch)
-
-        self.shortcut = nn.AvgPool2d(2) if stride != 1 else nn.Identity()
-        self.pad = out_ch - in_ch
-        self.p_drop = p_drop
-
-    def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = self.bn3(out)
-
-        if self.training:
-            out = shakedrop(out, True, self.p_drop)
-
-        shortcut = self.shortcut(x)
-        if self.pad > 0:
-            shortcut = F.pad(shortcut, (0, 0, 0, 0, 0, self.pad))
-
-        return out + shortcut
-
-
-# ─── PyramidNet Bottleneck Block ───────────────────────────────────────────
-
-class PyramidBottleneck(nn.Module):
-    outchannel_ratio = 4
-
-    def __init__(self, in_ch, out_ch, stride, p_drop):
-        super().__init__()
-        bottleneck_ch = out_ch // 4
-
-        self.bn1 = nn.BatchNorm2d(in_ch)
-        self.conv1 = nn.Conv2d(in_ch, bottleneck_ch, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(bottleneck_ch)
-        self.conv2 = nn.Conv2d(bottleneck_ch, bottleneck_ch, 3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(bottleneck_ch)
-        self.conv3 = nn.Conv2d(bottleneck_ch, out_ch, 1, bias=False)
-        self.bn4 = nn.BatchNorm2d(out_ch)
-
-        self.shortcut = nn.AvgPool2d(2) if stride != 1 else nn.Identity()
-        self.pad = out_ch - in_ch
-        self.p_drop = p_drop
-
-    def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = self.conv3(F.relu(self.bn3(out)))
-        out = self.bn4(out)
-
-        if self.training:
-            out = shakedrop(out, True, self.p_drop)
-
-        shortcut = self.shortcut(x)
-        if self.pad > 0:
-            shortcut = F.pad(shortcut, (0, 0, 0, 0, 0, self.pad))
-
-        return out + shortcut
-
-
-class PyramidNet(nn.Module):
-    """
-    PyramidNet with ShakeDrop.
-    Default config: depth=272, alpha=200, bottleneck=True
-    This is the SOTA from-scratch architecture for CIFAR-10.
-    """
-    def __init__(self, depth=272, alpha=200, num_classes=10, bottleneck=True):
-        super().__init__()
-        if bottleneck:
-            block = PyramidBottleneck
-            n = (depth - 2) // 9
-        else:
-            block = PyramidBasicBlock
-            n = (depth - 2) // 6
-
-        self.in_ch = 16
-        self.addrate = alpha / (3 * n)
-        self.conv1 = nn.Conv2d(3, 16, 3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
-
-        # Linear schedule for ShakeDrop survival probability
-        total_blocks = 3 * n
-        self.layer1 = self._make_layer(block, n, stride=1, total_blocks=total_blocks, start_block=0)
-        self.layer2 = self._make_layer(block, n, stride=2, total_blocks=total_blocks, start_block=n)
-        self.layer3 = self._make_layer(block, n, stride=2, total_blocks=total_blocks, start_block=2*n)
-
-        self.final_ch = self.in_ch
-        self.bn_final = nn.BatchNorm2d(self.final_ch)
-        self.fc = nn.Linear(self.final_ch, num_classes)
-
-        # Init
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-
-    def _make_layer(self, block, n_blocks, stride, total_blocks, start_block):
-        layers = []
-        for i in range(n_blocks):
-            block_idx = start_block + i
-            # Linear survival probability: p_l = 1 - l/L * (1 - p_L), p_L=0.5
-            p_drop = (block_idx + 1) / total_blocks * 0.5
-
-            out_ch = int(round(self.in_ch + self.addrate))
-            if block.outchannel_ratio == 4:
-                out_ch = int(round(out_ch / 4)) * 4  # ensure divisible by 4
-                if out_ch < 4:
-                    out_ch = 4
-
-            s = stride if i == 0 else 1
-            layers.append(block(self.in_ch, out_ch, s, p_drop))
-            self.in_ch = out_ch
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = F.relu(self.bn_final(out))
-        out = F.adaptive_avg_pool2d(out, 1)
-        out = out.flatten(1)
-        return self.fc(out)
-
-
-# ─── WideResNet-28-10 ─────────────────────────────────────────────────────
 
 class WRNBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride, dropout=0.3):
@@ -563,8 +231,10 @@ class WRNBlock(nn.Module):
 
 
 class WideResNet(nn.Module):
+    """WRN-28-10 for 32x32 images. ~36M params, proven CIFAR SOTA from scratch."""
     def __init__(self, depth=28, widen_factor=10, num_classes=10, dropout=0.3):
         super().__init__()
+        assert (depth - 4) % 6 == 0
         n = (depth - 4) // 6
         ch = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
         self.conv1 = nn.Conv2d(3, ch[0], 3, stride=1, padding=1, bias=False)
@@ -586,8 +256,7 @@ class WideResNet(nn.Module):
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
+                nn.init.ones_(m.weight); nn.init.zeros_(m.bias)
 
     def forward(self, x):
         out = self.conv1(x)
@@ -600,27 +269,21 @@ class WideResNet(nn.Module):
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
-# ║  BALANCED SOFTMAX LOSS                                                   ║
+# ║  LOSS: Balanced Softmax                                                  ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
 class BalancedSoftmaxLoss(nn.Module):
-    """
-    Balanced Softmax: adjusts logits by log(class_prior) to debias
-    the loss under long-tailed distributions.
-    Ref: Ren et al., "Balanced Meta-Softmax for Long-Tailed Visual Recognition" (NeurIPS 2020)
-    """
+    """Adjusts logits by log(class_prior) to debias long-tailed distributions."""
     def __init__(self, class_counts, label_smoothing=0.1):
         super().__init__()
-        # Log of class frequencies as bias
         freq = torch.tensor(class_counts, dtype=torch.float32)
         freq = freq / freq.sum()
         self.register_buffer("log_freq", torch.log(freq + 1e-12))
         self.label_smoothing = label_smoothing
 
     def forward(self, logits, targets):
-        # Adjust logits: add log(class_prior) to each logit
-        adjusted_logits = logits + self.log_freq.unsqueeze(0)
-        return F.cross_entropy(adjusted_logits, targets, label_smoothing=self.label_smoothing)
+        adjusted = logits + self.log_freq.unsqueeze(0)
+        return F.cross_entropy(adjusted, targets, label_smoothing=self.label_smoothing)
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -630,38 +293,31 @@ class BalancedSoftmaxLoss(nn.Module):
 def mixup_data(x, y, alpha=1.0):
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1.0
     idx = torch.randperm(x.size(0), device=x.device)
-    mixed = lam * x + (1 - lam) * x[idx]
-    return mixed, y, y[idx], lam
-
+    return lam * x + (1 - lam) * x[idx], y, y[idx], lam
 
 def cutmix_data(x, y, alpha=1.0):
     lam = np.random.beta(alpha, alpha) if alpha > 0 else 1.0
     idx = torch.randperm(x.size(0), device=x.device)
     B, C, H, W = x.shape
     cut_ratio = math.sqrt(1.0 - lam)
-    cut_w = int(W * cut_ratio)
-    cut_h = int(H * cut_ratio)
-    cx = random.randint(0, W - 1)
-    cy = random.randint(0, H - 1)
-    x1 = max(0, cx - cut_w // 2)
-    y1 = max(0, cy - cut_h // 2)
-    x2 = min(W, cx + cut_w // 2)
-    y2 = min(H, cy + cut_h // 2)
-    x_clone = x.clone()
-    x_clone[:, :, y1:y2, x1:x2] = x[idx, :, y1:y2, x1:x2]
+    cut_w, cut_h = int(W * cut_ratio), int(H * cut_ratio)
+    cx, cy = random.randint(0, W - 1), random.randint(0, H - 1)
+    x1, y1 = max(0, cx - cut_w // 2), max(0, cy - cut_h // 2)
+    x2, y2 = min(W, cx + cut_w // 2), min(H, cy + cut_h // 2)
+    x_out = x.clone()
+    x_out[:, :, y1:y2, x1:x2] = x[idx, :, y1:y2, x1:x2]
     lam = 1 - (y2 - y1) * (x2 - x1) / (W * H)
-    return x_clone, y, y[idx], lam
-
+    return x_out, y, y[idx], lam
 
 def mix_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
-# ║  TRAINING LOOP                                                           ║
+# ║  TRAINING                                                                ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-def train_one_epoch(model, loader, criterion, optimizer, device, epoch):
+def train_one_epoch(model, loader, criterion, optimizer, device, mix_prob=0.5):
     model.train()
     loss_meter = AverageMeter()
     correct = total = 0
@@ -670,11 +326,11 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch):
         images, targets = images.to(device), targets.to(device)
         use_mix = False
 
-        if MIX_PROB > 0 and random.random() < MIX_PROB:
+        if mix_prob > 0 and random.random() < mix_prob:
             if random.random() < 0.5:
-                images, ya, yb, lam = mixup_data(images, targets, MIXUP_ALPHA)
+                images, ya, yb, lam = mixup_data(images, targets, 1.0)
             else:
-                images, ya, yb, lam = cutmix_data(images, targets, CUTMIX_ALPHA)
+                images, ya, yb, lam = cutmix_data(images, targets, 1.0)
             outputs = model(images)
             loss = mix_criterion(criterion, outputs, ya, yb, lam)
             use_mix = True
@@ -684,7 +340,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, epoch):
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=GRAD_CLIP)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
 
         loss_meter.update(loss.item(), images.size(0))
@@ -712,106 +368,9 @@ def validate(model, loader, criterion, device):
         all_preds.extend(predicted.cpu().numpy())
         all_targets.extend(targets.cpu().numpy())
 
-    macro_f1 = compute_macro_f1(all_preds, all_targets)
+    f1 = compute_macro_f1(all_preds, all_targets)
     acc = 100.0 * np.mean(np.array(all_preds) == np.array(all_targets))
-    return loss_meter.avg, acc, macro_f1
-
-
-def train_single_model(model_factory, model_name, seed, device, train_dataset, val_dataset,
-                       class_counts, epochs=EPOCHS, debug=False):
-    """Train a single model with a given seed and return the best state dict."""
-    print(f"\n{'='*60}")
-    print(f"  Training {model_name} | Seed: {seed}")
-    print(f"{'='*60}")
-
-    seed_everything(seed)
-
-    # Re-create model each time for fresh init
-    model = model_factory().to(device)
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"  Parameters: {n_params:,}")
-
-    # Loss
-    criterion = BalancedSoftmaxLoss(class_counts, label_smoothing=LABEL_SMOOTH).to(device)
-
-    # Optimizer
-    optimizer = torch.optim.SGD(
-        model.parameters(), lr=LR, momentum=MOMENTUM,
-        weight_decay=WEIGHT_DECAY, nesterov=True
-    )
-
-    # LR scheduler: cosine with warmup
-    total_epochs = epochs
-    warmup = WARMUP_EPOCHS
-
-    def lr_lambda(epoch):
-        if epoch < warmup:
-            return (epoch + 1) / warmup
-        progress = (epoch - warmup) / (total_epochs - warmup)
-        return 0.5 * (1 + math.cos(math.pi * progress))
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
-
-    # SWA
-    swa_start = SWA_START if not debug else 9999
-    use_swa = swa_start < total_epochs
-    if use_swa:
-        swa_model = AveragedModel(model)
-        swa_scheduler = SWALR(optimizer, swa_lr=SWA_LR)
-
-    # Dataloader with balanced sampling
-    sampler = train_dataset.get_sampler() if not debug else None
-    train_loader = DataLoader(
-        train_dataset, batch_size=BATCH_SIZE,
-        shuffle=(sampler is None), sampler=sampler,
-        num_workers=4 if not debug else 0,
-        pin_memory=True, drop_last=True
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=BATCH_SIZE * 2,
-        shuffle=False, num_workers=4 if not debug else 0, pin_memory=True
-    )
-
-    best_f1 = 0.0
-    best_state = None
-
-    for epoch in range(total_epochs):
-        t0 = time.time()
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device, epoch)
-
-        if use_swa and epoch >= swa_start:
-            swa_model.update_parameters(model)
-            swa_scheduler.step()
-        else:
-            scheduler.step()
-
-        val_loss, val_acc, val_f1 = validate(model, val_loader, criterion, device)
-        elapsed = time.time() - t0
-        lr = optimizer.param_groups[0]["lr"]
-
-        swa_tag = " [SWA]" if (use_swa and epoch >= swa_start) else ""
-        if (epoch + 1) % 10 == 0 or epoch < 3 or (epoch + 1) == total_epochs:
-            print(f"  E{epoch+1:3d}/{total_epochs} | "
-                  f"TrL:{train_loss:.3f} TrA:{train_acc:.1f}% | "
-                  f"VL:{val_loss:.3f} VA:{val_acc:.1f}% F1:{val_f1:.4f} | "
-                  f"LR:{lr:.5f} | {elapsed:.1f}s{swa_tag}")
-
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            best_state = copy.deepcopy(model.state_dict())
-
-    # SWA BN update
-    if use_swa:
-        print("  Updating SWA batch normalization...")
-        torch.optim.swa_utils.update_bn(train_loader, swa_model, device=device)
-        val_loss, val_acc, val_f1 = validate(swa_model, val_loader, criterion, device)
-        print(f"  SWA Val — Acc: {val_acc:.1f}% F1: {val_f1:.4f}")
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            best_state = copy.deepcopy(swa_model.module.state_dict())
-
-    print(f"  ✓ Best F1: {best_f1:.4f}")
-    return best_state, best_f1
+    return loss_meter.avg, acc, f1, all_preds, all_targets
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -819,42 +378,56 @@ def train_single_model(model_factory, model_name, seed, device, train_dataset, v
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
 @torch.no_grad()
-def predict_with_tta(model, test_dataset, device, n_views=TTA_VIEWS, batch_size=256):
-    """Predict with TTA: 1 clean view + n_views augmented views, averaged."""
+def predict_with_tta(model, test_dataset, device, n_views=20, batch_size=512):
+    """1 clean view + n_views augmented views, softmax averaged."""
     model.eval()
 
     # Clean prediction
-    test_dataset.transform = ValTransform()
-    loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    all_probs = []
-    all_ids = []
+    test_dataset.transform = get_val_transforms()
+    loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+                        num_workers=4, pin_memory=True)
+    all_probs, all_ids = [], []
     for images, ids in loader:
         images = images.to(device)
-        logits = model(images)
-        probs = F.softmax(logits, dim=1)
+        probs = F.softmax(model(images), dim=1)
         all_probs.append(probs.cpu())
         all_ids.extend(ids)
-
     accumulated = torch.cat(all_probs, dim=0)
-    print(f"    Clean view done")
+    print(f"    Clean view done ({len(all_ids)} samples)")
 
     # TTA views
-    tta_transform = TTATransform()
-    for view_idx in range(n_views):
-        test_dataset.transform = tta_transform
-        loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    for v in range(n_views):
+        test_dataset.transform = get_tta_transform()
+        loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+                            num_workers=4, pin_memory=True)
         view_probs = []
         for images, ids in loader:
             images = images.to(device)
-            logits = model(images)
-            probs = F.softmax(logits, dim=1)
+            probs = F.softmax(model(images), dim=1)
             view_probs.append(probs.cpu())
         accumulated += torch.cat(view_probs, dim=0)
-        if (view_idx + 1) % 5 == 0:
-            print(f"    TTA view {view_idx + 1}/{n_views} done")
+        if (v + 1) % 5 == 0 or (v + 1) == n_views:
+            print(f"    TTA view {v+1}/{n_views} done")
 
-    avg_probs = accumulated / (n_views + 1)
-    return avg_probs, all_ids
+    return accumulated / (n_views + 1), all_ids
+
+
+def generate_submission(probs, ids, output_path):
+    """Write submission.csv from averaged probabilities."""
+    preds = probs.argmax(dim=1).numpy()
+    labels = [IDX_TO_CLASS[p] for p in preds]
+    with open(output_path, "w", newline="") as f:
+        f.write("id,label\n")
+        for img_id, label in zip(ids, labels):
+            f.write(f"{img_id},{label}\n")
+
+    dist = Counter(labels)
+    print(f"\n  Submission saved: {output_path}")
+    print(f"  Total: {len(ids)} predictions")
+    print(f"  Distribution:")
+    for cls in CLASS_NAMES:
+        print(f"    {cls:12s}: {dist.get(cls, 0):5d}")
+    return labels
 
 
 # ╔════════════════════════════════════════════════════════════════════════════╗
@@ -862,17 +435,23 @@ def predict_with_tta(model, test_dataset, device, n_views=TTA_VIEWS, batch_size=
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
 def main():
-    parser = argparse.ArgumentParser(description="ShiftGuard10 — Beat 0.95 F1")
-    parser.add_argument("--debug", action="store_true", help="Quick test: 2 epochs, small data")
+    parser = argparse.ArgumentParser(description="ShiftGuard10")
+    parser.add_argument("--debug", action="store_true")
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--data-root", type=str, default=None,
-                        help="Path to dataset directory (auto-detected if not set)")
-    parser.add_argument("--pyramid-depth", type=int, default=110,
-                        help="PyramidNet depth (272=SOTA but slow, 110=fast+strong, 164=balanced)")
-    parser.add_argument("--pyramid-alpha", type=int, default=200)
-    parser.add_argument("--epochs", type=int, default=None)
-    parser.add_argument("--skip-wrn", action="store_true", help="Skip WRN training (only PyramidNet)")
-    parser.add_argument("--fast", action="store_true", help="Fast mode: 2 seeds, 10 TTA views")
+    parser.add_argument("--data-root", type=str, default=None)
+    parser.add_argument("--epochs", type=int, default=300)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=0.1)
+    parser.add_argument("--wd", type=float, default=5e-4)
+    parser.add_argument("--swa-start", type=int, default=250,
+                        help="Epoch to start SWA (set > epochs to disable)")
+    parser.add_argument("--swa-lr", type=float, default=0.005)
+    parser.add_argument("--tta", type=int, default=20, help="Number of TTA views")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--mix-prob", type=float, default=0.5,
+                        help="Probability of MixUp/CutMix per batch")
+    parser.add_argument("--label-smoothing", type=float, default=0.1)
+    parser.add_argument("--output", type=str, default="submission.csv")
     args = parser.parse_args()
 
     # --- Resolve data root ---
@@ -880,7 +459,6 @@ def main():
     if args.data_root:
         DATA_ROOT = args.data_root
     else:
-        # Auto-detect: Kaggle > local directory
         candidates = [
             "/kaggle/input/shift-guard-10-robust-image-classification-challenge",
             "shift-guard-10-robust-image-classification-challenge",
@@ -893,125 +471,159 @@ def main():
                 break
 
     if not os.path.isdir(DATA_ROOT):
-        print(f"ERROR: Data directory not found: {DATA_ROOT}")
-        print(f"  Download and extract the competition data, then either:")
-        print(f"    1. Place it in ./shift-guard-10-robust-image-classification-challenge/")
-        print(f"    2. Use --data-root /path/to/data")
+        print(f"ERROR: Data not found at: {DATA_ROOT}")
+        print(f"  Use --data-root /path/to/data")
         sys.exit(1)
 
+    # --- Debug overrides ---
+    if args.debug:
+        args.epochs = 2
+        args.batch_size = 32
+        args.swa_start = 9999
+        args.tta = 2
+        print(">> DEBUG MODE: 2 epochs, small batches, 2 TTA views\n")
+
+    seed_everything(args.seed)
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
-    print(f"\n{'='*60}")
-    print(f"  ShiftGuard10 — Beat 0.95 F1")
-    print(f"  Device: {device}")
-    print(f"  PyramidNet-{args.pyramid_depth} (alpha={args.pyramid_alpha})")
+
+    print(f"{'='*60}")
+    print(f"  ShiftGuard10 Training")
+    print(f"  Device:  {device}")
+    print(f"  Epochs:  {args.epochs}")
+    print(f"  Batch:   {args.batch_size}")
+    print(f"  LR:      {args.lr}")
+    print(f"  SWA:     epoch {args.swa_start} (lr={args.swa_lr})")
+    print(f"  TTA:     {args.tta} views")
+    print(f"  Seed:    {args.seed}")
+    print(f"  Data:    {DATA_ROOT}")
     print(f"{'='*60}\n")
 
-    # --- Debug overrides ---
-    global EPOCHS, BATCH_SIZE, SWA_START, TTA_VIEWS, SEEDS
-    if args.debug:
-        EPOCHS = 2
-        BATCH_SIZE = 32
-        SWA_START = 9999
-        TTA_VIEWS = 2
-        SEEDS = [42]
-        print("  >> DEBUG MODE: 2 epochs, small batches, 1 seed, 2 TTA views\n")
-
-    if hasattr(args, 'fast') and args.fast and not args.debug:
-        SEEDS = [42, 137]
-        TTA_VIEWS = 10
-        print("  >> FAST MODE: 2 seeds, 10 TTA views\n")
-
-    if args.epochs is not None:
-        EPOCHS = args.epochs
-
-    # --- Datasets ---
-    train_dataset = ShiftGuard10Dataset(DATA_ROOT, split="train", transform=TrainTransform(), val_ratio=0.1)
-    val_dataset = ShiftGuard10Dataset(DATA_ROOT, split="val", transform=ValTransform(), val_ratio=0.1)
-    test_dataset = ShiftGuard10Dataset(DATA_ROOT, split="test", transform=ValTransform())
+    # ─── Data ─────────────────────────────────────────────────
+    train_dataset = ShiftGuard10Dataset(DATA_ROOT, "train", get_train_transforms(), val_ratio=0.1)
+    val_dataset   = ShiftGuard10Dataset(DATA_ROOT, "val", get_val_transforms(), val_ratio=0.1)
+    test_dataset  = ShiftGuard10Dataset(DATA_ROOT, "test", get_val_transforms())
 
     class_counts = train_dataset.get_class_counts()
     print(f"  Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}")
-    print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}")
+    print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}\n")
 
     if args.debug:
-        # Subset for debug
-        from torch.utils.data import Subset
         train_dataset = Subset(train_dataset, range(min(200, len(train_dataset))))
-        val_dataset = Subset(val_dataset, range(min(50, len(val_dataset))))
+        val_dataset   = Subset(val_dataset, range(min(50, len(val_dataset))))
 
-    # --- Train all models (multi-seed ensemble) ---
-    all_models = []  # List of (model_factory, state_dict, name)
+    # Balanced sampler
+    sampler = None
+    if not args.debug:
+        sampler = train_dataset.get_sampler()
 
-    # Model factory functions
-    def make_pyramid():
-        return PyramidNet(depth=args.pyramid_depth, alpha=args.pyramid_alpha, num_classes=NUM_CLASSES)
+    train_loader = DataLoader(
+        train_dataset, batch_size=args.batch_size,
+        shuffle=(sampler is None), sampler=sampler,
+        num_workers=4 if not args.debug else 0,
+        pin_memory=True, drop_last=True
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=args.batch_size * 2,
+        shuffle=False, num_workers=4 if not args.debug else 0, pin_memory=True
+    )
 
-    def make_wrn():
-        return WideResNet(depth=28, widen_factor=10, num_classes=NUM_CLASSES, dropout=0.3)
+    # ─── Model ────────────────────────────────────────────────
+    model = WideResNet(depth=28, widen_factor=10, num_classes=NUM_CLASSES, dropout=0.3).to(device)
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"  Model: WRN-28-10 | Params: {n_params:,}\n")
 
-    # Train PyramidNet with multiple seeds
-    for seed in SEEDS:
-        state, f1 = train_single_model(
-            make_pyramid, f"PyramidNet-{args.pyramid_depth}", seed, device,
-            train_dataset if not args.debug else train_dataset,
-            val_dataset, class_counts, epochs=EPOCHS, debug=args.debug
+    # ─── Loss ─────────────────────────────────────────────────
+    criterion = BalancedSoftmaxLoss(class_counts, label_smoothing=args.label_smoothing).to(device)
+
+    # ─── Optimizer ────────────────────────────────────────────
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args.lr, momentum=0.9,
+        weight_decay=args.wd, nesterov=True
+    )
+
+    warmup_epochs = 5
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            return (epoch + 1) / warmup_epochs
+        progress = (epoch - warmup_epochs) / (args.epochs - warmup_epochs)
+        return 0.5 * (1 + math.cos(math.pi * progress))
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    # SWA
+    use_swa = args.swa_start < args.epochs
+    if use_swa:
+        swa_model = AveragedModel(model)
+        swa_scheduler = SWALR(optimizer, swa_lr=args.swa_lr)
+        print(f"  SWA enabled from epoch {args.swa_start}\n")
+
+    # ─── Training Loop ────────────────────────────────────────
+    best_f1 = 0.0
+    best_state = None
+
+    print(f"  Training started...\n")
+    for epoch in range(args.epochs):
+        t0 = time.time()
+
+        train_loss, train_acc = train_one_epoch(
+            model, train_loader, criterion, optimizer, device, args.mix_prob
         )
-        all_models.append((make_pyramid, state, f"pyramid_s{seed}"))
 
-    # Train WRN-28-10 with multiple seeds (for ensemble diversity)
-    if not args.skip_wrn:
-        for seed in SEEDS:
-            state, f1 = train_single_model(
-                make_wrn, "WRN-28-10", seed, device,
-                train_dataset if not args.debug else train_dataset,
-                val_dataset, class_counts, epochs=EPOCHS, debug=args.debug
-            )
-            all_models.append((make_wrn, state, f"wrn_s{seed}"))
+        if use_swa and epoch >= args.swa_start:
+            swa_model.update_parameters(model)
+            swa_scheduler.step()
+        else:
+            scheduler.step()
 
-    # --- Ensemble Inference with TTA ---
+        val_loss, val_acc, val_f1, preds, targets = validate(model, val_loader, criterion, device)
+        elapsed = time.time() - t0
+        lr = optimizer.param_groups[0]["lr"]
+
+        swa_tag = " [SWA]" if (use_swa and epoch >= args.swa_start) else ""
+        print(f"  E{epoch+1:3d}/{args.epochs} | "
+              f"TrL:{train_loss:.3f} TrA:{train_acc:.1f}% | "
+              f"VL:{val_loss:.3f} VA:{val_acc:.1f}% F1:{val_f1:.4f} | "
+              f"LR:{lr:.6f} | {elapsed:.1f}s{swa_tag}")
+
+        # Per-class report every 50 epochs
+        if (epoch + 1) % 50 == 0 or (epoch + 1) == args.epochs:
+            print(get_classification_report(preds, targets))
+
+        if val_f1 > best_f1:
+            best_f1 = val_f1
+            best_state = copy.deepcopy(model.state_dict())
+
+    # ─── SWA Finalize ─────────────────────────────────────────
+    if use_swa:
+        print("\n  Updating SWA batch normalization...")
+        torch.optim.swa_utils.update_bn(train_loader, swa_model, device=device)
+        _, val_acc, val_f1, preds, targets = validate(swa_model, val_loader, criterion, device)
+        print(f"  SWA Val — Acc: {val_acc:.1f}% F1: {val_f1:.4f}")
+        print(get_classification_report(preds, targets))
+        if val_f1 > best_f1:
+            best_f1 = val_f1
+            best_state = copy.deepcopy(swa_model.module.state_dict())
+
+    print(f"\n  Best Val F1: {best_f1:.4f}")
+
+    # ─── Inference on Test Set ────────────────────────────────
     print(f"\n{'='*60}")
-    print(f"  Ensemble Inference: {len(all_models)} models × {TTA_VIEWS}+1 TTA views")
+    print(f"  Inference: TTA with {args.tta} views")
     print(f"{'='*60}")
 
-    # Reload test dataset (clean transform)
-    test_dataset = ShiftGuard10Dataset(DATA_ROOT, split="test", transform=ValTransform())
+    # Load best weights
+    model.load_state_dict(best_state)
+    model.eval()
 
-    ensemble_probs = None
-    for model_factory, state_dict, name in all_models:
-        print(f"\n  Predicting with {name}...")
-        model = model_factory().to(device)
-        model.load_state_dict(state_dict)
-        model.eval()
+    probs, ids = predict_with_tta(model, test_dataset, device,
+                                   n_views=args.tta, batch_size=512)
 
-        probs, ids = predict_with_tta(model, test_dataset, device,
-                                       n_views=TTA_VIEWS, batch_size=256)
-        if ensemble_probs is None:
-            ensemble_probs = probs
-        else:
-            ensemble_probs += probs
-
-        del model
-        torch.cuda.empty_cache()
-
-    ensemble_probs /= len(all_models)
-
-    # --- Generate Submission ---
-    preds = ensemble_probs.argmax(dim=1).numpy()
-    labels = [IDX_TO_CLASS[p] for p in preds]
-
-    output_path = os.path.join(OUTPUT_DIR, "submission.csv")
-    with open(output_path, "w", newline="") as f:
-        f.write("id,label\n")
-        for img_id, label in zip(ids, labels):
-            f.write(f"{img_id},{label}\n")
+    output_path = os.path.join(OUTPUT_DIR, args.output)
+    generate_submission(probs, ids, output_path)
 
     print(f"\n{'='*60}")
-    print(f"  ✓ Submission saved: {output_path}")
-    print(f"  Total predictions: {len(ids)}")
-    dist = Counter(labels)
-    print(f"  Distribution:")
-    for cls in CLASS_NAMES:
-        print(f"    {cls:12s}: {dist.get(cls, 0):5d}")
+    print(f"  DONE! Best Val F1: {best_f1:.4f}")
+    print(f"  Submission: {output_path}")
     print(f"{'='*60}")
 
 
