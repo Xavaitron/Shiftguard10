@@ -4,15 +4,15 @@ ShiftGuard10 — All-in-One Training + Inference (v3)
 Trains from scratch, generates submission.csv.
 
 v3 improvements over v2 (which scored 0.9348):
-  - 2-seed ensemble (train twice, average predictions)
+  - 3-seed ensemble (train thrice, average predictions)
   - More aggressive oversampling of tail classes (sqrt-inverse weighting)
   - Use 95% of data for training (5% val) — more data for tail classes
-  - Train 400 epochs with SWA from 320
+  - Train 450 epochs with SWA from 360
   - 30-view TTA
   - Save/load checkpoints to avoid retraining
 
 Usage:
-  python notebook.py                         # Full run: 2 seeds × 400 epochs + 30 TTA
+  python notebook.py                         # Full run: 3 seeds × 450 epochs + 30 TTA
   python notebook.py --seeds 42              # Single seed (faster, ~same as v2)
   python notebook.py --epochs 300 --tta 20   # Custom settings
   python notebook.py --debug                 # Smoke test
@@ -550,18 +550,18 @@ def main():
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--epochs", type=int, default=400)
+    parser.add_argument("--epochs", type=int, default=450)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=float, default=5e-4)
     parser.add_argument("--val-ratio", type=float, default=0.05,
                         help="Fraction of data for validation (smaller = more training data)")
-    parser.add_argument("--swa-start", type=int, default=320,
+    parser.add_argument("--swa-start", type=int, default=360,
                         help="Epoch to start SWA")
     parser.add_argument("--swa-lr", type=float, default=0.005)
     parser.add_argument("--tta", type=int, default=30, help="Number of TTA views")
-    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 137],
-                        help="Seeds for ensemble (e.g. --seeds 42 137)")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42, 137, 7],
+                        help="Seeds for ensemble (e.g. --seeds 42 137 7)")
     parser.add_argument("--mix-prob", type=float, default=0.5)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
     parser.add_argument("--output", type=str, default="submission.csv")
