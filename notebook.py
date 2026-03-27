@@ -565,7 +565,7 @@ def main():
     parser.add_argument("--mix-prob", type=float, default=0.5)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
     parser.add_argument("--output", type=str, default="submission.csv")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     # --- Resolve data root ---
     global DATA_ROOT
@@ -573,6 +573,7 @@ def main():
         DATA_ROOT = args.data_root
     else:
         candidates = [
+            "/kaggle/input/competitions/shift-guard-10-robust-image-classification-challenge",
             "/kaggle/input/shift-guard-10-robust-image-classification-challenge",
             "shift-guard-10-robust-image-classification-challenge",
             os.path.join(os.path.dirname(os.path.abspath(__file__)),
