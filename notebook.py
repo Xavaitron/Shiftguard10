@@ -619,11 +619,17 @@ def main():
     print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}\n")
     del tmp_ds
 
-    # ─── Train with each seed ────────────────────────────────
+    # ─── Train with each seed (skip if checkpoint exists) ───
     all_states = []
     for seed in args.seeds:
-        state, f1 = train_single_seed(seed, args, device, class_counts)
-        all_states.append(state)
+        ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
+        if os.path.isfile(ckpt_path):
+            print(f"\n  Checkpoint found: {ckpt_path} — skipping training for seed={seed}")
+            state = torch.load(ckpt_path, map_location=device, weights_only=True)
+            all_states.append(state)
+        else:
+            state, f1 = train_single_seed(seed, args, device, class_counts)
+            all_states.append(state)
 
     # ─── Ensemble Inference with TTA ─────────────────────────
     print(f"\n{'='*60}")
