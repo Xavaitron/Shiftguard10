@@ -576,7 +576,7 @@ def main():
             "/kaggle/input/competitions/shift-guard-10-robust-image-classification-challenge",
             "/kaggle/input/shift-guard-10-robust-image-classification-challenge",
             "shift-guard-10-robust-image-classification-challenge",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
+            os.path.join(os.getcwd(),
                          "shift-guard-10-robust-image-classification-challenge"),
         ]
         for p in candidates:
