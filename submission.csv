@@ -8,7 +8,7 @@ id,label
 000007,frog
 000008,bird
 000009,dog
-000010,bird
+000010,truck
 000011,dog
 000012,frog
 000013,horse
@@ -30,7 +30,7 @@ id,label
 000029,ship
 000030,frog
 000031,horse
-000032,airplane
+000032,ship
 000033,airplane
 000034,automobile
 000035,truck
@@ -158,7 +158,7 @@ id,label
 000157,cat
 000158,ship
 000159,automobile
-000160,frog
+000160,cat
 000161,ship
 000162,deer
 000163,dog
@@ -187,7 +187,7 @@ id,label
 000186,dog
 000187,ship
 000188,airplane
-000189,automobile
+000189,truck
 000190,deer
 000191,dog
 000192,cat
@@ -285,12 +285,12 @@ id,label
 000284,automobile
 000285,dog
 000286,bird
-000287,deer
+000287,truck
 000288,horse
 000289,cat
 000290,dog
 000291,ship
-000292,cat
+000292,ship
 000293,airplane
 000294,bird
 000295,truck
@@ -327,7 +327,7 @@ id,label
 000326,cat
 000327,horse
 000328,ship
-000329,dog
+000329,cat
 000330,ship
 000331,deer
 000332,ship
@@ -338,7 +338,7 @@ id,label
 000337,truck
 000338,dog
 000339,dog
-000340,automobile
+000340,truck
 000341,airplane
 000342,frog
 000343,deer
@@ -378,11 +378,11 @@ id,label
 000377,horse
 000378,frog
 000379,truck
-000380,horse
+000380,dog
 000381,truck
 000382,deer
 000383,frog
-000384,truck
+000384,automobile
 000385,dog
 000386,frog
 000387,bird
@@ -448,7 +448,7 @@ id,label
 000447,frog
 000448,horse
 000449,horse
-000450,airplane
+000450,deer
 000451,dog
 000452,dog
 000453,truck
@@ -493,7 +493,7 @@ id,label
 000492,airplane
 000493,horse
 000494,ship
-000495,automobile
+000495,truck
 000496,frog
 000497,cat
 000498,automobile
@@ -545,7 +545,7 @@ id,label
 000544,horse
 000545,horse
 000546,horse
-000547,dog
+000547,cat
 000548,ship
 000549,truck
 000550,airplane
@@ -559,7 +559,7 @@ id,label
 000558,automobile
 000559,ship
 000560,airplane
-000561,automobile
+000561,truck
 000562,truck
 000563,truck
 000564,dog
@@ -680,7 +680,7 @@ id,label
 000679,cat
 000680,truck
 000681,horse
-000682,airplane
+000682,truck
 000683,deer
 000684,automobile
 000685,ship
@@ -758,7 +758,7 @@ id,label
 000757,frog
 000758,frog
 000759,dog
-000760,truck
+000760,automobile
 000761,truck
 000762,deer
 000763,airplane
@@ -791,11 +791,11 @@ id,label
 000790,truck
 000791,truck
 000792,horse
-000793,dog
+000793,frog
 000794,ship
 000795,deer
 000796,truck
-000797,frog
+000797,automobile
 000798,ship
 000799,ship
 000800,truck
@@ -839,10 +839,10 @@ id,label
 000838,automobile
 000839,deer
 000840,frog
-000841,cat
+000841,dog
 000842,ship
 000843,bird
-000844,dog
+000844,truck
 000845,bird
 000846,deer
 000847,horse
@@ -856,11 +856,11 @@ id,label
 000855,cat
 000856,truck
 000857,bird
-000858,ship
+000858,cat
 000859,automobile
-000860,horse
+000860,deer
 000861,deer
-000862,automobile
+000862,truck
 000863,truck
 000864,truck
 000865,dog
@@ -889,7 +889,7 @@ id,label
 000888,truck
 000889,truck
 000890,dog
-000891,truck
+000891,airplane
 000892,deer
 000893,dog
 000894,dog
@@ -1005,7 +1005,7 @@ id,label
 001004,cat
 001005,deer
 001006,frog
-001007,truck
+001007,cat
 001008,deer
 001009,frog
 001010,ship
@@ -1020,7 +1020,7 @@ id,label
 001019,deer
 001020,horse
 001021,cat
-001022,horse
+001022,cat
 001023,automobile
 001024,frog
 001025,deer
@@ -1087,7 +1087,7 @@ id,label
 001086,horse
 001087,ship
 001088,frog
-001089,bird
+001089,cat
 001090,frog
 001091,cat
 001092,cat
@@ -1191,7 +1191,7 @@ id,label
 001190,frog
 001191,dog
 001192,automobile
-001193,cat
+001193,frog
 001194,bird
 001195,dog
 001196,truck
@@ -1327,7 +1327,7 @@ id,label
 001326,ship
 001327,cat
 001328,airplane
-001329,frog
+001329,dog
 001330,truck
 001331,horse
 001332,dog
@@ -1348,7 +1348,7 @@ id,label
 001347,horse
 001348,truck
 001349,deer
-001350,automobile
+001350,truck
 001351,airplane
 001352,ship
 001353,frog
@@ -1420,7 +1420,7 @@ id,label
 001419,horse
 001420,dog
 001421,truck
-001422,bird
+001422,deer
 001423,truck
 001424,cat
 001425,frog
@@ -1432,7 +1432,7 @@ id,label
 001431,bird
 001432,dog
 001433,deer
-001434,horse
+001434,cat
 001435,truck
 001436,frog
 001437,bird
@@ -1474,7 +1474,7 @@ id,label
 001473,automobile
 001474,ship
 001475,truck
-001476,cat
+001476,deer
 001477,deer
 001478,horse
 001479,frog
@@ -1505,7 +1505,7 @@ id,label
 001504,truck
 001505,truck
 001506,deer
-001507,cat
+001507,frog
 001508,deer
 001509,truck
 001510,automobile
@@ -1580,7 +1580,7 @@ id,label
 001579,truck
 001580,truck
 001581,truck
-001582,horse
+001582,dog
 001583,horse
 001584,dog
 001585,automobile
@@ -1648,7 +1648,7 @@ id,label
 001647,airplane
 001648,dog
 001649,cat
-001650,dog
+001650,airplane
 001651,dog
 001652,truck
 001653,deer
@@ -1705,7 +1705,7 @@ id,label
 001704,deer
 001705,airplane
 001706,frog
-001707,automobile
+001707,truck
 001708,horse
 001709,truck
 001710,airplane
@@ -1751,7 +1751,7 @@ id,label
 001750,bird
 001751,deer
 001752,ship
-001753,horse
+001753,bird
 001754,airplane
 001755,ship
 001756,deer
@@ -1775,7 +1775,7 @@ id,label
 001774,horse
 001775,dog
 001776,horse
-001777,automobile
+001777,truck
 001778,truck
 001779,frog
 001780,bird
@@ -1786,7 +1786,7 @@ id,label
 001785,horse
 001786,dog
 001787,frog
-001788,ship
+001788,truck
 001789,horse
 001790,truck
 001791,automobile
@@ -1811,7 +1811,7 @@ id,label
 001810,deer
 001811,cat
 001812,truck
-001813,cat
+001813,dog
 001814,horse
 001815,deer
 001816,dog
@@ -1831,7 +1831,7 @@ id,label
 001830,ship
 001831,deer
 001832,bird
-001833,bird
+001833,frog
 001834,deer
 001835,frog
 001836,horse
@@ -1900,7 +1900,7 @@ id,label
 001899,horse
 001900,ship
 001901,ship
-001902,cat
+001902,dog
 001903,truck
 001904,ship
 001905,automobile
@@ -1956,14 +1956,14 @@ id,label
 001955,airplane
 001956,frog
 001957,automobile
-001958,cat
+001958,dog
 001959,truck
 001960,ship
 001961,frog
 001962,dog
 001963,cat
 001964,deer
-001965,cat
+001965,dog
 001966,dog
 001967,airplane
 001968,horse
@@ -2018,7 +2018,7 @@ id,label
 002017,deer
 002018,horse
 002019,airplane
-002020,automobile
+002020,truck
 002021,truck
 002022,frog
 002023,deer
@@ -2158,7 +2158,7 @@ id,label
 002157,airplane
 002158,truck
 002159,truck
-002160,bird
+002160,truck
 002161,horse
 002162,deer
 002163,cat
@@ -2181,7 +2181,7 @@ id,label
 002180,truck
 002181,truck
 002182,truck
-002183,automobile
+002183,frog
 002184,deer
 002185,deer
 002186,airplane
@@ -2213,7 +2213,7 @@ id,label
 002212,ship
 002213,automobile
 002214,dog
-002215,cat
+002215,horse
 002216,ship
 002217,truck
 002218,truck
@@ -2309,7 +2309,7 @@ id,label
 002308,dog
 002309,automobile
 002310,horse
-002311,deer
+002311,dog
 002312,airplane
 002313,deer
 002314,truck
@@ -2355,9 +2355,9 @@ id,label
 002354,automobile
 002355,deer
 002356,ship
-002357,truck
+002357,automobile
 002358,frog
-002359,bird
+002359,ship
 002360,automobile
 002361,horse
 002362,ship
@@ -2479,7 +2479,7 @@ id,label
 002478,truck
 002479,dog
 002480,truck
-002481,automobile
+002481,truck
 002482,truck
 002483,horse
 002484,ship
@@ -2515,7 +2515,7 @@ id,label
 002514,frog
 002515,deer
 002516,cat
-002517,cat
+002517,truck
 002518,ship
 002519,ship
 002520,ship
@@ -2558,7 +2558,7 @@ id,label
 002557,frog
 002558,ship
 002559,truck
-002560,cat
+002560,horse
 002561,cat
 002562,deer
 002563,dog
@@ -2610,7 +2610,7 @@ id,label
 002609,frog
 002610,horse
 002611,airplane
-002612,ship
+002612,truck
 002613,horse
 002614,cat
 002615,dog
@@ -2708,7 +2708,7 @@ id,label
 002707,ship
 002708,airplane
 002709,deer
-002710,frog
+002710,cat
 002711,dog
 002712,ship
 002713,bird
@@ -2953,7 +2953,7 @@ id,label
 002952,deer
 002953,dog
 002954,deer
-002955,cat
+002955,horse
 002956,truck
 002957,cat
 002958,automobile
@@ -2971,7 +2971,7 @@ id,label
 002970,ship
 002971,deer
 002972,bird
-002973,bird
+002973,dog
 002974,bird
 002975,dog
 002976,ship
@@ -2984,7 +2984,7 @@ id,label
 002983,truck
 002984,truck
 002985,truck
-002986,ship
+002986,cat
 002987,ship
 002988,airplane
 002989,deer
@@ -3020,7 +3020,7 @@ id,label
 003019,bird
 003020,ship
 003021,frog
-003022,automobile
+003022,truck
 003023,horse
 003024,frog
 003025,deer
@@ -3036,11 +3036,11 @@ id,label
 003035,frog
 003036,automobile
 003037,cat
-003038,cat
+003038,bird
 003039,frog
 003040,deer
 003041,airplane
-003042,ship
+003042,truck
 003043,airplane
 003044,frog
 003045,dog
@@ -3137,7 +3137,7 @@ id,label
 003136,ship
 003137,deer
 003138,bird
-003139,airplane
+003139,ship
 003140,deer
 003141,truck
 003142,frog
@@ -3231,7 +3231,7 @@ id,label
 003230,dog
 003231,horse
 003232,frog
-003233,dog
+003233,cat
 003234,dog
 003235,automobile
 003236,ship
@@ -3373,7 +3373,7 @@ id,label
 003372,horse
 003373,horse
 003374,truck
-003375,dog
+003375,horse
 003376,cat
 003377,horse
 003378,horse
@@ -3404,7 +3404,7 @@ id,label
 003403,deer
 003404,horse
 003405,bird
-003406,ship
+003406,airplane
 003407,horse
 003408,cat
 003409,airplane
@@ -3488,7 +3488,7 @@ id,label
 003487,dog
 003488,airplane
 003489,horse
-003490,dog
+003490,frog
 003491,ship
 003492,airplane
 003493,ship
@@ -3538,7 +3538,7 @@ id,label
 003537,horse
 003538,frog
 003539,horse
-003540,cat
+003540,truck
 003541,ship
 003542,horse
 003543,truck
@@ -3601,7 +3601,7 @@ id,label
 003600,truck
 003601,dog
 003602,automobile
-003603,cat
+003603,deer
 003604,truck
 003605,deer
 003606,truck
@@ -3624,7 +3624,7 @@ id,label
 003623,deer
 003624,dog
 003625,deer
-003626,bird
+003626,airplane
 003627,automobile
 003628,airplane
 003629,deer
@@ -3653,10 +3653,10 @@ id,label
 003652,ship
 003653,horse
 003654,ship
-003655,deer
+003655,cat
 003656,horse
 003657,dog
-003658,truck
+003658,dog
 003659,ship
 003660,deer
 003661,dog
@@ -3670,7 +3670,7 @@ id,label
 003669,airplane
 003670,dog
 003671,horse
-003672,truck
+003672,automobile
 003673,truck
 003674,ship
 003675,frog
@@ -3714,7 +3714,7 @@ id,label
 003713,deer
 003714,ship
 003715,deer
-003716,automobile
+003716,truck
 003717,horse
 003718,automobile
 003719,frog
@@ -3793,7 +3793,7 @@ id,label
 003792,deer
 003793,truck
 003794,deer
-003795,horse
+003795,dog
 003796,horse
 003797,dog
 003798,airplane
@@ -4000,7 +4000,7 @@ id,label
 003999,dog
 004000,bird
 004001,frog
-004002,automobile
+004002,truck
 004003,ship
 004004,automobile
 004005,deer
@@ -4050,7 +4050,7 @@ id,label
 004049,truck
 004050,deer
 004051,horse
-004052,airplane
+004052,ship
 004053,airplane
 004054,truck
 004055,cat
@@ -4100,7 +4100,7 @@ id,label
 004099,frog
 004100,automobile
 004101,frog
-004102,cat
+004102,truck
 004103,truck
 004104,cat
 004105,frog
@@ -4184,7 +4184,7 @@ id,label
 004183,deer
 004184,ship
 004185,automobile
-004186,frog
+004186,truck
 004187,automobile
 004188,frog
 004189,ship
@@ -4228,7 +4228,7 @@ id,label
 004227,frog
 004228,horse
 004229,truck
-004230,cat
+004230,frog
 004231,truck
 004232,horse
 004233,automobile
@@ -4334,7 +4334,7 @@ id,label
 004333,horse
 004334,airplane
 004335,dog
-004336,airplane
+004336,truck
 004337,deer
 004338,airplane
 004339,frog
@@ -4421,7 +4421,7 @@ id,label
 004420,frog
 004421,deer
 004422,automobile
-004423,ship
+004423,airplane
 004424,horse
 004425,truck
 004426,dog
@@ -4475,7 +4475,7 @@ id,label
 004474,bird
 004475,automobile
 004476,automobile
-004477,ship
+004477,truck
 004478,airplane
 004479,truck
 004480,frog
@@ -4493,7 +4493,7 @@ id,label
 004492,ship
 004493,bird
 004494,dog
-004495,cat
+004495,frog
 004496,cat
 004497,truck
 004498,frog
@@ -4516,7 +4516,7 @@ id,label
 004515,automobile
 004516,truck
 004517,ship
-004518,cat
+004518,dog
 004519,dog
 004520,cat
 004521,cat
@@ -4677,7 +4677,7 @@ id,label
 004676,truck
 004677,deer
 004678,dog
-004679,cat
+004679,frog
 004680,horse
 004681,truck
 004682,horse
@@ -4733,11 +4733,11 @@ id,label
 004732,deer
 004733,ship
 004734,airplane
-004735,dog
+004735,horse
 004736,horse
 004737,truck
 004738,dog
-004739,dog
+004739,bird
 004740,frog
 004741,truck
 004742,horse
@@ -4747,7 +4747,7 @@ id,label
 004746,ship
 004747,dog
 004748,cat
-004749,cat
+004749,truck
 004750,cat
 004751,deer
 004752,automobile
@@ -4803,7 +4803,7 @@ id,label
 004802,bird
 004803,horse
 004804,truck
-004805,cat
+004805,dog
 004806,horse
 004807,ship
 004808,dog
@@ -4869,7 +4869,7 @@ id,label
 004868,automobile
 004869,horse
 004870,bird
-004871,dog
+004871,frog
 004872,ship
 004873,horse
 004874,horse
@@ -4916,7 +4916,7 @@ id,label
 004915,frog
 004916,bird
 004917,frog
-004918,automobile
+004918,ship
 004919,dog
 004920,airplane
 004921,dog
@@ -4929,7 +4929,7 @@ id,label
 004928,frog
 004929,deer
 004930,dog
-004931,cat
+004931,dog
 004932,automobile
 004933,truck
 004934,frog
@@ -5124,7 +5124,7 @@ id,label
 005123,truck
 005124,horse
 005125,frog
-005126,cat
+005126,deer
 005127,horse
 005128,bird
 005129,cat
@@ -5136,7 +5136,7 @@ id,label
 005135,airplane
 005136,truck
 005137,ship
-005138,dog
+005138,cat
 005139,airplane
 005140,ship
 005141,horse
@@ -5198,7 +5198,7 @@ id,label
 005197,horse
 005198,frog
 005199,ship
-005200,airplane
+005200,truck
 005201,automobile
 005202,automobile
 005203,horse
@@ -5236,8 +5236,8 @@ id,label
 005235,truck
 005236,ship
 005237,frog
-005238,bird
-005239,cat
+005238,deer
+005239,deer
 005240,horse
 005241,ship
 005242,automobile
@@ -5283,13 +5283,13 @@ id,label
 005282,dog
 005283,bird
 005284,deer
-005285,dog
+005285,horse
 005286,ship
 005287,ship
 005288,automobile
 005289,dog
 005290,airplane
-005291,automobile
+005291,truck
 005292,dog
 005293,frog
 005294,dog
@@ -5298,7 +5298,7 @@ id,label
 005297,dog
 005298,airplane
 005299,ship
-005300,airplane
+005300,ship
 005301,bird
 005302,automobile
 005303,dog
@@ -5349,7 +5349,7 @@ id,label
 005348,frog
 005349,cat
 005350,cat
-005351,bird
+005351,dog
 005352,ship
 005353,deer
 005354,ship
@@ -5396,7 +5396,7 @@ id,label
 005395,frog
 005396,truck
 005397,ship
-005398,ship
+005398,bird
 005399,truck
 005400,dog
 005401,cat
@@ -5481,7 +5481,7 @@ id,label
 005480,truck
 005481,frog
 005482,horse
-005483,ship
+005483,truck
 005484,frog
 005485,frog
 005486,truck
@@ -5538,12 +5538,12 @@ id,label
 005537,cat
 005538,horse
 005539,truck
-005540,horse
+005540,cat
 005541,airplane
 005542,truck
 005543,dog
 005544,airplane
-005545,automobile
+005545,truck
 005546,automobile
 005547,truck
 005548,dog
@@ -5612,7 +5612,7 @@ id,label
 005611,frog
 005612,automobile
 005613,cat
-005614,cat
+005614,frog
 005615,frog
 005616,dog
 005617,ship
@@ -5673,7 +5673,7 @@ id,label
 005672,cat
 005673,dog
 005674,airplane
-005675,cat
+005675,dog
 005676,deer
 005677,automobile
 005678,bird
@@ -5740,7 +5740,7 @@ id,label
 005739,bird
 005740,deer
 005741,ship
-005742,cat
+005742,truck
 005743,dog
 005744,automobile
 005745,truck
@@ -5776,7 +5776,7 @@ id,label
 005775,horse
 005776,frog
 005777,truck
-005778,horse
+005778,airplane
 005779,airplane
 005780,ship
 005781,horse
@@ -5843,7 +5843,7 @@ id,label
 005842,truck
 005843,bird
 005844,horse
-005845,bird
+005845,deer
 005846,ship
 005847,frog
 005848,frog
@@ -5923,7 +5923,7 @@ id,label
 005922,truck
 005923,horse
 005924,deer
-005925,dog
+005925,cat
 005926,dog
 005927,truck
 005928,cat
@@ -5988,7 +5988,7 @@ id,label
 005987,dog
 005988,bird
 005989,ship
-005990,cat
+005990,frog
 005991,cat
 005992,horse
 005993,airplane
@@ -6021,14 +6021,14 @@ id,label
 006020,dog
 006021,automobile
 006022,dog
-006023,bird
+006023,frog
 006024,automobile
 006025,frog
 006026,frog
 006027,ship
 006028,truck
 006029,automobile
-006030,cat
+006030,horse
 006031,ship
 006032,ship
 006033,dog
@@ -6068,8 +6068,8 @@ id,label
 006067,automobile
 006068,horse
 006069,automobile
-006070,bird
-006071,truck
+006070,dog
+006071,dog
 006072,dog
 006073,frog
 006074,horse
@@ -6079,7 +6079,7 @@ id,label
 006078,deer
 006079,horse
 006080,dog
-006081,horse
+006081,dog
 006082,airplane
 006083,dog
 006084,ship
@@ -6126,14 +6126,14 @@ id,label
 006125,frog
 006126,deer
 006127,airplane
-006128,deer
+006128,dog
 006129,ship
 006130,ship
 006131,bird
 006132,cat
 006133,truck
 006134,dog
-006135,dog
+006135,horse
 006136,airplane
 006137,deer
 006138,truck
@@ -6305,7 +6305,7 @@ id,label
 006304,automobile
 006305,horse
 006306,deer
-006307,automobile
+006307,ship
 006308,horse
 006309,deer
 006310,horse
@@ -6324,7 +6324,7 @@ id,label
 006323,truck
 006324,frog
 006325,deer
-006326,airplane
+006326,ship
 006327,truck
 006328,truck
 006329,ship
@@ -6437,9 +6437,9 @@ id,label
 006436,truck
 006437,deer
 006438,ship
-006439,dog
+006439,cat
 006440,ship
-006441,horse
+006441,cat
 006442,dog
 006443,ship
 006444,truck
@@ -6465,7 +6465,7 @@ id,label
 006464,frog
 006465,automobile
 006466,cat
-006467,horse
+006467,dog
 006468,truck
 006469,bird
 006470,dog
@@ -6495,7 +6495,7 @@ id,label
 006494,deer
 006495,horse
 006496,truck
-006497,dog
+006497,truck
 006498,automobile
 006499,deer
 006500,dog
@@ -6537,7 +6537,7 @@ id,label
 006536,truck
 006537,truck
 006538,frog
-006539,ship
+006539,truck
 006540,truck
 006541,bird
 006542,cat
@@ -6550,7 +6550,7 @@ id,label
 006549,bird
 006550,cat
 006551,deer
-006552,horse
+006552,deer
 006553,ship
 006554,horse
 006555,deer
@@ -6688,7 +6688,7 @@ id,label
 006687,airplane
 006688,dog
 006689,frog
-006690,dog
+006690,horse
 006691,automobile
 006692,bird
 006693,cat
@@ -6717,7 +6717,7 @@ id,label
 006716,horse
 006717,cat
 006718,ship
-006719,cat
+006719,truck
 006720,horse
 006721,dog
 006722,cat
@@ -6734,7 +6734,7 @@ id,label
 006733,frog
 006734,automobile
 006735,frog
-006736,cat
+006736,dog
 006737,cat
 006738,automobile
 006739,bird
@@ -6791,14 +6791,14 @@ id,label
 006790,frog
 006791,frog
 006792,deer
-006793,ship
+006793,truck
 006794,cat
 006795,cat
 006796,horse
 006797,frog
 006798,cat
 006799,cat
-006800,bird
+006800,dog
 006801,ship
 006802,frog
 006803,airplane
@@ -6847,7 +6847,7 @@ id,label
 006846,automobile
 006847,frog
 006848,bird
-006849,cat
+006849,frog
 006850,truck
 006851,automobile
 006852,deer
@@ -6896,7 +6896,7 @@ id,label
 006895,horse
 006896,horse
 006897,horse
-006898,dog
+006898,cat
 006899,truck
 006900,deer
 006901,ship
@@ -6905,7 +6905,7 @@ id,label
 006904,deer
 006905,dog
 006906,frog
-006907,horse
+006907,bird
 006908,truck
 006909,ship
 006910,cat
@@ -6958,7 +6958,7 @@ id,label
 006957,bird
 006958,ship
 006959,horse
-006960,truck
+006960,automobile
 006961,automobile
 006962,frog
 006963,dog
@@ -6969,7 +6969,7 @@ id,label
 006968,horse
 006969,truck
 006970,frog
-006971,deer
+006971,dog
 006972,deer
 006973,frog
 006974,deer
@@ -7028,7 +7028,7 @@ id,label
 007027,airplane
 007028,horse
 007029,airplane
-007030,automobile
+007030,truck
 007031,deer
 007032,cat
 007033,dog
@@ -7047,7 +7047,7 @@ id,label
 007046,dog
 007047,ship
 007048,deer
-007049,deer
+007049,dog
 007050,frog
 007051,horse
 007052,truck
@@ -7061,7 +7061,7 @@ id,label
 007060,airplane
 007061,horse
 007062,truck
-007063,cat
+007063,truck
 007064,horse
 007065,frog
 007066,frog
@@ -7083,7 +7083,7 @@ id,label
 007082,dog
 007083,automobile
 007084,truck
-007085,truck
+007085,cat
 007086,horse
 007087,frog
 007088,bird
@@ -7133,7 +7133,7 @@ id,label
 007132,automobile
 007133,ship
 007134,horse
-007135,automobile
+007135,truck
 007136,airplane
 007137,bird
 007138,ship
@@ -7220,7 +7220,7 @@ id,label
 007219,automobile
 007220,horse
 007221,horse
-007222,dog
+007222,frog
 007223,bird
 007224,dog
 007225,dog
@@ -7247,11 +7247,11 @@ id,label
 007246,frog
 007247,ship
 007248,frog
-007249,automobile
+007249,truck
 007250,horse
 007251,frog
 007252,dog
-007253,ship
+007253,airplane
 007254,automobile
 007255,cat
 007256,horse
@@ -7396,13 +7396,13 @@ id,label
 007395,airplane
 007396,airplane
 007397,cat
-007398,airplane
+007398,truck
 007399,dog
 007400,frog
 007401,cat
 007402,truck
 007403,bird
-007404,airplane
+007404,truck
 007405,horse
 007406,truck
 007407,cat
@@ -7422,7 +7422,7 @@ id,label
 007421,dog
 007422,horse
 007423,dog
-007424,automobile
+007424,truck
 007425,airplane
 007426,deer
 007427,frog
