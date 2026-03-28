@@ -378,8 +378,14 @@ def validate(model, loader, criterion, device):
 
 
 def train_single_seed(seed, args, device, class_counts):
-    """Train one WRN-28-10 with a given seed. Returns best state_dict and val F1."""
+    """Train one WRN-28-10 with a given seed. Returns best state_dict and val F1.
+    Saves full checkpoint after every epoch (one file per seed, overwritten).
+    Resumes from checkpoint if training was interrupted."""
     seed_everything(seed)
+
+    os.makedirs("checkpoints", exist_ok=True)
+    ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
+
     print(f"\n{'='*60}")
     print(f"  Training seed={seed} | epochs={args.epochs}")
     print(f"{'='*60}\n")
@@ -432,8 +438,25 @@ def train_single_seed(seed, args, device, class_counts):
 
     best_f1 = 0.0
     best_state = None
+    start_epoch = 0
 
-    for epoch in range(args.epochs):
+    # ── Resume from checkpoint if it exists ──
+    if os.path.isfile(ckpt_path):
+        print(f"  Resuming from checkpoint: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt['model_state'])
+        optimizer.load_state_dict(ckpt['optimizer_state'])
+        scheduler.load_state_dict(ckpt['scheduler_state'])
+        best_f1 = ckpt['best_f1']
+        best_state = ckpt['best_state']
+        start_epoch = ckpt['epoch'] + 1
+        if use_swa and 'swa_state' in ckpt and ckpt['swa_state'] is not None:
+            swa_model.load_state_dict(ckpt['swa_state'])
+        if 'swa_scheduler_state' in ckpt and ckpt['swa_scheduler_state'] is not None:
+            swa_scheduler.load_state_dict(ckpt['swa_scheduler_state'])
+        print(f"  Resumed at epoch {start_epoch}/{args.epochs} | best F1 so far: {best_f1:.4f}")
+
+    for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
         train_loss, train_acc = train_one_epoch(
             model, train_loader, criterion, optimizer, device, args.mix_prob
@@ -462,6 +485,20 @@ def train_single_seed(seed, args, device, class_counts):
             best_f1 = val_f1
             best_state = copy.deepcopy(model.state_dict())
 
+        # ── Save checkpoint after every epoch (overwrite) ──
+        ckpt_data = {
+            'epoch': epoch,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'best_f1': best_f1,
+            'best_state': best_state,
+            'swa_state': swa_model.state_dict() if (use_swa and epoch >= swa_start) else None,
+            'swa_scheduler_state': swa_scheduler.state_dict() if (use_swa and epoch >= swa_start) else None,
+            'completed': False,
+        }
+        torch.save(ckpt_data, ckpt_path)
+
     # SWA finalize
     if use_swa:
         print("\n  Updating SWA batch normalization...")
@@ -475,11 +512,20 @@ def train_single_seed(seed, args, device, class_counts):
 
     print(f"  Seed {seed} best F1: {best_f1:.4f}")
 
-    # Save checkpoint
-    os.makedirs("checkpoints", exist_ok=True)
-    ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
-    torch.save(best_state, ckpt_path)
-    print(f"  Saved: {ckpt_path}")
+    # ── Mark checkpoint as completed ──
+    ckpt_data = {
+        'epoch': args.epochs - 1,
+        'model_state': model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+        'scheduler_state': scheduler.state_dict(),
+        'best_f1': best_f1,
+        'best_state': best_state,
+        'swa_state': swa_model.state_dict() if use_swa else None,
+        'swa_scheduler_state': swa_scheduler.state_dict() if use_swa else None,
+        'completed': True,
+    }
+    torch.save(ckpt_data, ckpt_path)
+    print(f"  Saved (completed): {ckpt_path}")
 
     return best_state, best_f1
 
@@ -620,17 +666,19 @@ def main():
     print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}\n")
     del tmp_ds
 
-    # ─── Train with each seed (skip if checkpoint exists) ───
+    # ─── Train with each seed (skip completed, resume in-progress) ───
     all_states = []
     for seed in args.seeds:
         ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
         if os.path.isfile(ckpt_path):
-            print(f"\n  Checkpoint found: {ckpt_path} — skipping training for seed={seed}")
-            state = torch.load(ckpt_path, map_location=device, weights_only=True)
-            all_states.append(state)
-        else:
-            state, f1 = train_single_seed(seed, args, device, class_counts)
-            all_states.append(state)
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+            if ckpt.get('completed', False):
+                print(f"\n  Completed checkpoint found: {ckpt_path} — skipping seed={seed}")
+                all_states.append(ckpt['best_state'])
+                continue
+        # Train (or resume in-progress)
+        state, f1 = train_single_seed(seed, args, device, class_counts)
+        all_states.append(state)
 
     # ─── Ensemble Inference with TTA ─────────────────────────
     print(f"\n{'='*60}")
