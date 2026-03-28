@@ -321,7 +321,7 @@ def mix_criterion(criterion, pred, y_a, y_b, lam):
 # ║  TRAINING                                                                ║
 # ╚════════════════════════════════════════════════════════════════════════════╝
 
-def train_one_epoch(model, loader, criterion, optimizer, device, mix_prob=0.5):
+def train_one_epoch(model, loader, criterion, optimizer, device, scaler, mix_prob=0.5):
     model.train()
     loss_meter = AverageMeter()
     correct = total = 0
@@ -330,22 +330,25 @@ def train_one_epoch(model, loader, criterion, optimizer, device, mix_prob=0.5):
         images, targets = images.to(device), targets.to(device)
         use_mix = False
 
-        if mix_prob > 0 and random.random() < mix_prob:
-            if random.random() < 0.5:
-                images, ya, yb, lam = mixup_data(images, targets, 1.0)
+        with torch.amp.autocast('cuda'):
+            if mix_prob > 0 and random.random() < mix_prob:
+                if random.random() < 0.5:
+                    images, ya, yb, lam = mixup_data(images, targets, 1.0)
+                else:
+                    images, ya, yb, lam = cutmix_data(images, targets, 1.0)
+                outputs = model(images)
+                loss = mix_criterion(criterion, outputs, ya, yb, lam)
+                use_mix = True
             else:
-                images, ya, yb, lam = cutmix_data(images, targets, 1.0)
-            outputs = model(images)
-            loss = mix_criterion(criterion, outputs, ya, yb, lam)
-            use_mix = True
-        else:
-            outputs = model(images)
-            loss = criterion(outputs, targets)
+                outputs = model(images)
+                loss = criterion(outputs, targets)
 
         optimizer.zero_grad()
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         loss_meter.update(loss.item(), images.size(0))
         if not use_mix:
@@ -365,8 +368,9 @@ def validate(model, loader, criterion, device):
 
     for images, targets in loader:
         images, targets = images.to(device), targets.to(device)
-        outputs = model(images)
-        loss = criterion(outputs, targets)
+        with torch.amp.autocast('cuda'):
+            outputs = model(images)
+            loss = criterion(outputs, targets)
         loss_meter.update(loss.item(), images.size(0))
         _, predicted = outputs.max(1)
         all_preds.extend(predicted.cpu().numpy())
@@ -442,6 +446,8 @@ def train_single_seed(seed, args, device, class_counts):
         model = nn.DataParallel(model)
         print(f"  Using DataParallel on {n_gpus} GPUs")
 
+    scaler = torch.amp.GradScaler('cuda')
+
     best_f1 = 0.0
     best_state = None
     start_epoch = 0
@@ -461,12 +467,14 @@ def train_single_seed(seed, args, device, class_counts):
             swa_model.load_state_dict(ckpt['swa_state'])
         if 'swa_scheduler_state' in ckpt and ckpt['swa_scheduler_state'] is not None:
             swa_scheduler.load_state_dict(ckpt['swa_scheduler_state'])
+        if 'scaler_state' in ckpt and ckpt['scaler_state'] is not None:
+            scaler.load_state_dict(ckpt['scaler_state'])
         print(f"  Resumed at epoch {start_epoch}/{args.epochs} | best F1 so far: {best_f1:.4f}")
 
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
         train_loss, train_acc = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, args.mix_prob
+            model, train_loader, criterion, optimizer, device, scaler, args.mix_prob
         )
 
         if use_swa and epoch >= swa_start:
@@ -503,6 +511,7 @@ def train_single_seed(seed, args, device, class_counts):
             'best_state': best_state,
             'swa_state': swa_model.state_dict() if (use_swa and epoch >= swa_start) else None,
             'swa_scheduler_state': swa_scheduler.state_dict() if (use_swa and epoch >= swa_start) else None,
+            'scaler_state': scaler.state_dict(),
             'completed': False,
         }
         torch.save(ckpt_data, ckpt_path)
@@ -530,6 +539,7 @@ def train_single_seed(seed, args, device, class_counts):
         'best_state': best_state,
         'swa_state': swa_model.state_dict() if use_swa else None,
         'swa_scheduler_state': swa_scheduler.state_dict() if use_swa else None,
+        'scaler_state': scaler.state_dict(),
         'completed': True,
     }
     torch.save(ckpt_data, ckpt_path)
@@ -554,7 +564,8 @@ def predict_with_tta(model, test_dataset, device, n_views=30, batch_size=512):
     all_probs, all_ids = [], []
     for images, ids in loader:
         images = images.to(device)
-        probs = F.softmax(model(images), dim=1)
+        with torch.amp.autocast('cuda'):
+            probs = F.softmax(model(images), dim=1)
         all_probs.append(probs.cpu())
         all_ids.extend(ids)
     accumulated = torch.cat(all_probs, dim=0)
@@ -568,7 +579,8 @@ def predict_with_tta(model, test_dataset, device, n_views=30, batch_size=512):
         view_probs = []
         for images, ids in loader:
             images = images.to(device)
-            probs = F.softmax(model(images), dim=1)
+            with torch.amp.autocast('cuda'):
+                probs = F.softmax(model(images), dim=1)
             view_probs.append(probs.cpu())
         accumulated += torch.cat(view_probs, dim=0)
         if (v + 1) % 5 == 0 or (v + 1) == n_views:
@@ -604,13 +616,13 @@ def main():
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--data-root", type=str, default=None)
-    parser.add_argument("--epochs", type=int, default=450)
+    parser.add_argument("--epochs", type=int, default=250)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=float, default=5e-4)
     parser.add_argument("--val-ratio", type=float, default=0.05,
                         help="Fraction of data for validation (smaller = more training data)")
-    parser.add_argument("--swa-start", type=int, default=360,
+    parser.add_argument("--swa-start", type=int, default=200,
                         help="Epoch to start SWA")
     parser.add_argument("--swa-lr", type=float, default=0.005)
     parser.add_argument("--tta", type=int, default=30, help="Number of TTA views")
