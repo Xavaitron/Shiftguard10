@@ -436,6 +436,12 @@ def train_single_seed(seed, args, device, class_counts):
         swa_model = AveragedModel(model)
         swa_scheduler = SWALR(optimizer, swa_lr=args.swa_lr)
 
+    # Wrap in DataParallel AFTER optimizer/SWA setup (they use the base model)
+    n_gpus = torch.cuda.device_count()
+    if n_gpus > 1:
+        model = nn.DataParallel(model)
+        print(f"  Using DataParallel on {n_gpus} GPUs")
+
     best_f1 = 0.0
     best_state = None
     start_epoch = 0
@@ -444,7 +450,8 @@ def train_single_seed(seed, args, device, class_counts):
     if os.path.isfile(ckpt_path):
         print(f"  Resuming from checkpoint: {ckpt_path}")
         ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt['model_state'])
+        raw = model.module if isinstance(model, nn.DataParallel) else model
+        raw.load_state_dict(ckpt['model_state'])
         optimizer.load_state_dict(ckpt['optimizer_state'])
         scheduler.load_state_dict(ckpt['scheduler_state'])
         best_f1 = ckpt['best_f1']
@@ -483,12 +490,13 @@ def train_single_seed(seed, args, device, class_counts):
 
         if val_f1 > best_f1:
             best_f1 = val_f1
-            best_state = copy.deepcopy(model.state_dict())
+            raw = model.module if isinstance(model, nn.DataParallel) else model
+            best_state = copy.deepcopy(raw.state_dict())
 
         # ── Save checkpoint after every epoch (overwrite) ──
         ckpt_data = {
             'epoch': epoch,
-            'model_state': model.state_dict(),
+            'model_state': (model.module if isinstance(model, nn.DataParallel) else model).state_dict(),
             'optimizer_state': optimizer.state_dict(),
             'scheduler_state': scheduler.state_dict(),
             'best_f1': best_f1,
@@ -515,7 +523,7 @@ def train_single_seed(seed, args, device, class_counts):
     # ── Mark checkpoint as completed ──
     ckpt_data = {
         'epoch': args.epochs - 1,
-        'model_state': model.state_dict(),
+        'model_state': (model.module if isinstance(model, nn.DataParallel) else model).state_dict(),
         'optimizer_state': optimizer.state_dict(),
         'scheduler_state': scheduler.state_dict(),
         'best_f1': best_f1,
@@ -597,7 +605,7 @@ def main():
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--data-root", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=450)
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=float, default=5e-4)
     parser.add_argument("--val-ratio", type=float, default=0.05,
@@ -644,7 +652,10 @@ def main():
         args.seeds = [42]
         print(">> DEBUG MODE: 2 epochs, 1 seed, 2 TTA views\n")
 
-    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    n_gpus = torch.cuda.device_count()
+    if n_gpus > 1:
+        print(f"  Found {n_gpus} GPUs — will use DataParallel")
 
     print(f"{'='*60}")
     print(f"  ShiftGuard10 v3")
@@ -693,6 +704,8 @@ def main():
         print(f"\n  Model {i+1}/{len(all_states)} (seed={args.seeds[i]})...")
         model = WideResNet(depth=28, widen_factor=10, num_classes=NUM_CLASSES, dropout=0.3).to(device)
         model.load_state_dict(state_dict)
+        if torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
         model.eval()
 
         probs, ids = predict_with_tta(model, test_dataset, device,
