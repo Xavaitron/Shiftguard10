@@ -656,10 +656,10 @@ def main():
         args.seeds = [42]
         print(">> DEBUG MODE: 2 epochs, 1 seed, 2 TTA views\n")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     n_gpus = torch.cuda.device_count()
-    if n_gpus > 1:
-        print(f"  Found {n_gpus} GPUs — will use DataParallel")
+    if torch.cuda.is_available():
+        print(f"  GPU {args.gpu}: {torch.cuda.get_device_name(args.gpu)}")
 
     print(f"{'='*60}")
     print(f"  ShiftGuard10 v3")
