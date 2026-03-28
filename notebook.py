@@ -383,8 +383,8 @@ def train_single_seed(seed, args, device, class_counts):
     Resumes from checkpoint if training was interrupted."""
     seed_everything(seed)
 
-    os.makedirs("checkpoints", exist_ok=True)
-    ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
+    ckpt_path = os.path.join(args.checkpoint_dir, f"wrn_seed{seed}.pth")
 
     print(f"\n{'='*60}")
     print(f"  Training seed={seed} | epochs={args.epochs}")
@@ -619,6 +619,10 @@ def main():
     parser.add_argument("--mix-prob", type=float, default=0.5)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
     parser.add_argument("--output", type=str, default="submission.csv")
+    parser.add_argument("--inference-only", action="store_true",
+                        help="Skip training, load checkpoints and run inference only")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
+                        help="Directory to save/load checkpoints")
     args, _ = parser.parse_known_args()
 
     # --- Resolve data root ---
@@ -677,19 +681,30 @@ def main():
     print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}\n")
     del tmp_ds
 
-    # ─── Train with each seed (skip completed, resume in-progress) ───
+    # ─── Train with each seed (or load checkpoints in inference-only mode) ───
     all_states = []
     for seed in args.seeds:
-        ckpt_path = f"checkpoints/wrn_seed{seed}.pth"
-        if os.path.isfile(ckpt_path):
+        ckpt_path = os.path.join(args.checkpoint_dir, f"wrn_seed{seed}.pth")
+        if args.inference_only:
+            if not os.path.isfile(ckpt_path):
+                print(f"ERROR: Checkpoint not found: {ckpt_path}")
+                sys.exit(1)
+            print(f"\n  Loading checkpoint: {ckpt_path}")
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+            best_state = ckpt.get('best_state', ckpt.get('model_state', ckpt))
+            all_states.append(best_state)
+        elif os.path.isfile(ckpt_path):
             ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
             if ckpt.get('completed', False):
                 print(f"\n  Completed checkpoint found: {ckpt_path} — skipping seed={seed}")
                 all_states.append(ckpt['best_state'])
                 continue
-        # Train (or resume in-progress)
-        state, f1 = train_single_seed(seed, args, device, class_counts)
-        all_states.append(state)
+            # Resume in-progress training
+            state, f1 = train_single_seed(seed, args, device, class_counts)
+            all_states.append(state)
+        else:
+            state, f1 = train_single_seed(seed, args, device, class_counts)
+            all_states.append(state)
 
     # ─── Ensemble Inference with TTA ─────────────────────────
     print(f"\n{'='*60}")
