@@ -3,7 +3,7 @@ ShiftGuard10 — All-in-One Training + Inference (v3)
 =====================================================
 Trains from scratch, generates submission.csv.
 
-v3 improvements over v2 (which scored 0.9348):
+Features:
   - 3-seed ensemble (train thrice, average predictions)
   - More aggressive oversampling of tail classes (sqrt-inverse weighting)
   - Use 95% of data for training (5% val) — more data for tail classes
@@ -11,11 +11,11 @@ v3 improvements over v2 (which scored 0.9348):
   - 30-view TTA
   - Save/load checkpoints to avoid retraining
 
-Usage:
-  python notebook.py                         # Full run: 3 seeds × 450 epochs + 30 TTA
-  python notebook.py --seeds 42              # Single seed (faster, ~same as v2)
-  python notebook.py --epochs 300 --tta 20   # Custom settings
-  python notebook.py --debug                 # Smoke test
+No External Checkpoint is used in this competition , All the training is done from scratch
+The model used in this script is generated from scrtch as well
+Training from scratch takes around 60 hrs for 2xT4 GPUS 
+Since the limit for kaggle is 30hrs we have to use the checkpoint generated from scratch
+NO EXTERNAL CHECKPOINT OR DATASET IS USED IN THIS SCRIPT
 """
 
 import os
