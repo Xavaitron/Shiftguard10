@@ -12,9 +12,10 @@ Features:
   - Save/load checkpoints to avoid retraining
 
 No External Checkpoint is used in this competition , All the training is done from scratch
-The model used in this script is generated from scrtch as well
+The model used in this script is generated from scrtch from this script itself
+If you remove the model path then the model will be trained from scratch
 Training from scratch takes around 60 hrs for 2xT4 GPUS 
-Since the limit for kaggle is 30hrs we have to use the checkpoint generated from scratch
+Since the limit for kaggle is 30hrs training has been done in batches and the checkpoints are saved
 NO EXTERNAL CHECKPOINT OR DATASET IS USED IN THIS SCRIPT
 """
 
