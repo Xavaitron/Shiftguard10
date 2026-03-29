@@ -601,7 +601,7 @@ def main():
     parser = argparse.ArgumentParser(description="ShiftGuard10")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--data-root", type=str, default=None)
+    parser.add_argument("--data-root", type=str, default="/kaggle/input/competitions/shift-guard-10-robust-image-classification-challenge")
     parser.add_argument("--epochs", type=int, default=450)
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--lr", type=float, default=0.1)
@@ -619,7 +619,7 @@ def main():
     parser.add_argument("--output", type=str, default="submission.csv")
     parser.add_argument("--inference-only", action="store_true",
                         help="Skip training, load checkpoints and run inference only")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints",
+    parser.add_argument("--checkpoint-dir", type=str, default="/kaggle/input/models/xavaitron/wrn-3seed/pytorch/default/1",
                         help="Directory to save/load checkpoints")
     args, _ = parser.parse_known_args()
 
@@ -679,28 +679,19 @@ def main():
     print(f"  Class counts: {dict(zip(CLASS_NAMES, class_counts))}\n")
     del tmp_ds
 
-    # ─── Train with each seed (or load checkpoints in inference-only mode) ───
+    # ─── Train with each seed (or load checkpoints if they exist) ───
     all_states = []
     for seed in args.seeds:
         ckpt_path = os.path.join(args.checkpoint_dir, f"wrn_seed{seed}.pth")
-        if args.inference_only:
-            if not os.path.isfile(ckpt_path):
-                print(f"ERROR: Checkpoint not found: {ckpt_path}")
-                sys.exit(1)
-            print(f"\n  Loading checkpoint: {ckpt_path}")
+        if os.path.isfile(ckpt_path):
+            print(f"\n  Checkpoint found: {ckpt_path} — skipping training for seed={seed}")
             ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
             best_state = ckpt.get('best_state', ckpt.get('model_state', ckpt))
             all_states.append(best_state)
-        elif os.path.isfile(ckpt_path):
-            ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-            if ckpt.get('completed', False):
-                print(f"\n  Completed checkpoint found: {ckpt_path} — skipping seed={seed}")
-                all_states.append(ckpt['best_state'])
-                continue
-            # Resume in-progress training
-            state, f1 = train_single_seed(seed, args, device, class_counts)
-            all_states.append(state)
         else:
+            if args.inference_only:
+                print(f"ERROR: Checkpoint not found: {ckpt_path} (inference-only mode)")
+                sys.exit(1)
             state, f1 = train_single_seed(seed, args, device, class_counts)
             all_states.append(state)
 
